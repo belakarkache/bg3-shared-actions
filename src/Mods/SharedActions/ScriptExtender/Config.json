@@ -1,0 +1,5 @@
+{
+    "RequiredVersion": 25,
+    "ModTable": "SharedActions",
+    "FeatureFlags": ["Lua"]
+}

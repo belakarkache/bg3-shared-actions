@@ -1,0 +1,8 @@
+new entry "SA_Scroll_OBJ_Scroll_Telekinesis"
+type "SpellData"
+using "Throw_Telekinesis"
+data "SpellContainerID" "SA_UseScroll"
+data "ContainerSpells" ""
+data "Icon" "SA_Icon_OBJ_Scroll_Telekinesis"
+data "DisplayName" "h769809b3g936cg4e0cg7c65gcb1bfe375ba4;1"
+data "UseCosts" "ActionPoint:1"

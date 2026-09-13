@@ -1,0 +1,12 @@
+/*
+
+!/.gitignore
+!/README.md
+!/LICENSE
+
+!/src
+!/tools
+!/tests
+
+__pycache__/
+build/

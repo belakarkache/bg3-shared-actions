@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<save>
+	<version major="4" minor="0" revision="9" build="328" lslib_meta="v1,bswap_guids" />
+	<region id="TextureBank">
+		<node id="TextureBank">
+			<children>
+				<node id="Resource">
+					<attribute id="ID" type="FixedString" value="8595b3ad-8553-4e2c-a364-fefdcc80235f" />
+					<attribute id="Localized" type="bool" value="False" />
+					<attribute id="Name" type="LSString" value="SharedActions_Icons" />
+					<attribute id="SRGB" type="bool" value="True" />
+					<attribute id="SourceFile" type="LSString" value="Public/SharedActions/Assets/Textures/Icons/SharedActions_Icons.dds" />
+					<attribute id="Streaming" type="bool" value="True" />
+					<attribute id="Template" type="FixedString" value="SharedActions_Icons" />
+					<attribute id="Type" type="int64" value="0" />
+				</node>
+				<node id="Resource">
+					<attribute id="ID" type="FixedString" value="3f2c9a17-6b04-4d58-9c31-0ad7e5b41c62" />
+					<attribute id="Localized" type="bool" value="False" />
+					<attribute id="Name" type="LSString" value="SharedActions_Scrolls" />
+					<attribute id="SRGB" type="bool" value="True" />
+					<attribute id="SourceFile" type="LSString" value="Public/SharedActions/Assets/Textures/Icons/SharedActions_Scrolls.dds" />
+					<attribute id="Streaming" type="bool" value="True" />
+					<attribute id="Template" type="FixedString" value="SharedActions_Scrolls" />
+					<attribute id="Type" type="int64" value="0" />
+				</node>
+				<node id="Resource">
+					<attribute id="ID" type="FixedString" value="b7d4e2a9-5c31-4f08-9e6a-2d7c15b83f40" />
+					<attribute id="Localized" type="bool" value="False" />
+					<attribute id="Name" type="LSString" value="SharedActions_Items" />
+					<attribute id="SRGB" type="bool" value="True" />
+					<attribute id="SourceFile" type="LSString" value="Public/SharedActions/Assets/Textures/Icons/SharedActions_Items.dds" />
+					<attribute id="Streaming" type="bool" value="True" />
+					<attribute id="Template" type="FixedString" value="SharedActions_Items" />
+					<attribute id="Type" type="int64" value="0" />
+				</node>
+			</children>
+		</node>
+	</region>
+</save>
