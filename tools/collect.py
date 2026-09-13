@@ -13,6 +13,8 @@ SPELL_FILES = sorted(GAMEDATA.glob("Public/*/Stats/Generated/Data/Spell_*.txt"))
 TEMPLATE_FILES = sorted(GAMEDATA.glob("Public/*/RootTemplates/_merged.lsx"))
 
 USABLE_ITEM_TYPES = {"Potion": "potions", "Scroll": "scrolls"}
+THROWN_ITEM_TYPES = {"Potion", "Grenade", "Throwable"}
+PROJECTILE_SPELL_PARAMETER = "ProjectileSpell"
 MAX_INHERITANCE_DEPTH = 12
 
 DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
@@ -62,6 +64,23 @@ def parse_use_actions(node):
     return actions
 
 
+def parse_script_parameters(node):
+    parameters = {}
+    for group in node.findall("children/node"):
+        if group.get("id") != "Scripts":
+            continue
+        for script in group.findall("children/node"):
+            for block in script.findall("children/node"):
+                if block.get("id") != "Parameters":
+                    continue
+                for parameter in block.findall("children/node"):
+                    attributes = {a.get("id"): a.get("value")
+                                  for a in parameter.findall("attribute")}
+                    if attributes.get("MapKey"):
+                        parameters[attributes["MapKey"]] = attributes.get("Value")
+    return parameters
+
+
 def item_spell(spells, use_actions):
     found = [spell for spell, _ in use_actions if spell]
     name = found[-1] if found else None
@@ -89,6 +108,7 @@ def parse_root_templates(paths):
                 "icon": attributes.get("Icon"),
                 "parent": attributes.get("ParentTemplateId"),
                 "use_actions": parse_use_actions(node),
+                "scripts": parse_script_parameters(node),
             }
             if guid in templates:
                 for key, value in record.items():
@@ -106,6 +126,18 @@ def resolve_template_field(templates, guid, field, depth=0):
     if value:
         return value
     return resolve_template_field(templates, templates[guid].get("parent"), field, depth + 1)
+
+
+def projectile_spell(templates, spells, guid, depth=0):
+    while guid in templates and depth <= MAX_INHERITANCE_DEPTH:
+        name = (templates[guid].get("scripts") or {}).get(PROJECTILE_SPELL_PARAMETER)
+        if name:
+            if name not in spells or resolve_stat_field(spells, name, "ContainerSpells"):
+                return ""
+            return name
+        guid = templates[guid].get("parent")
+        depth += 1
+    return ""
 
 
 def base_family(templates, guid):
@@ -130,17 +162,34 @@ def main():
     print(f"stats: {len(entries)} entradas | templates: {len(templates)}", file=sys.stderr)
 
     catalog = {category: [] for category in USABLE_ITEM_TYPES.values()}
+    catalog["throwables"] = []
     skipped = {"sem_template": 0, "sem_custo": 0}
 
     for name in entries:
         item_use_type = resolve_stat_field(entries, name, "ItemUseType")
         category = USABLE_ITEM_TYPES.get(item_use_type)
-        if not category or name.startswith("_"):
+        throwable = item_use_type in THROWN_ITEM_TYPES
+        if (not category and not throwable) or name.startswith("_"):
             continue
 
         guid = resolve_stat_field(entries, name, "RootTemplate")
         if not guid or guid not in templates:
             skipped["sem_template"] += 1
+            continue
+
+        if throwable:
+            thrown = projectile_spell(templates, spells, guid)
+            if thrown:
+                catalog["throwables"].append({
+                    "stat": name,
+                    "template": guid,
+                    "family": base_family(templates, guid),
+                    "icon": resolve_template_field(templates, guid, "icon"),
+                    "spell": thrown,
+                    "rarity": resolve_stat_field(entries, name, "Rarity") or "",
+                })
+
+        if not category:
             continue
 
         use_costs = resolve_stat_field(entries, name, "UseCosts")
@@ -166,8 +215,8 @@ def main():
     output.parent.mkdir(exist_ok=True)
     output.write_text(json.dumps(catalog, indent=1, ensure_ascii=False), encoding="utf-8")
 
-    print(f"poções: {len(catalog['potions'])} | pergaminhos: {len(catalog['scrolls'])}",
-          file=sys.stderr)
+    print(f"poções: {len(catalog['potions'])} | pergaminhos: {len(catalog['scrolls'])} "
+          f"| arremessáveis: {len(catalog['throwables'])}", file=sys.stderr)
     print(f"descartados: {skipped}", file=sys.stderr)
     print(f"-> {output}", file=sys.stderr)
 

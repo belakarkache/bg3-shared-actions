@@ -15,16 +15,21 @@ MERGED_LSX = ROOT / "src/Public/SharedActions/Content/UI/[PAK]_UI/_merged.lsx"
 GUI_DIR = ROOT / "src/Public/SharedActions/GUI"
 
 CATEGORIES_UNDER_TEST = [
-    ("SA_TakePotion", "SA_Potion_", "Potion", "BonusActionPoint:1",
+    ("SA_TakePotion", "SA_Potion_", {"Potion"}, "BonusActionPoint:1",
      {"BASE_ALCH_Solution_Elixir", "BASE_CONS_Drink_Potion", "BASE_ALCH_Solution_Potion"},
      "h366930b4g0001g4000g9000g366930b40001",
      "h366930b4g0003g4000g9000g366930b40003",
-     False),
-    ("SA_UseScroll", "SA_Scroll_", "Scroll", "ActionPoint:1",
+     "none"),
+    ("SA_UseScroll", "SA_Scroll_", {"Scroll"}, "ActionPoint:1",
      {"BASE_BOOK_Scroll_Magic"},
      "h366930b4g0002g4000g9000g366930b40002",
      "h366930b4g0004g4000g9000g366930b40004",
-     True),
+     "item"),
+    ("SA_ThrowItem", "SA_Throw_", {"Potion", "Grenade", "Throwable"}, "ActionPoint:1",
+     set(),
+     "h366930b4g0007g4000g9000g366930b40007",
+     "h366930b4g0008g4000g9000g366930b40008",
+     "projectile"),
 ]
 
 DIG_UNDER_TEST = {
@@ -53,7 +58,7 @@ ATLAS_UUID_PATTERN = re.compile(r'id="UUID" type="FixedString" value="([^"]+)"')
 DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
 USING_PATTERN = re.compile(r'^using "([^"]+)"', re.M)
 ICON_KEY_PATTERN = re.compile(r'\["(SA_Icon_[^"]+)"\] = true')
-SUB_SPELL_PATTERN = re.compile(r'\["(SA_(?:Potion|Scroll)_[^"]+)"\]')
+SUB_SPELL_PATTERN = re.compile(r'\["(SA_(?:Potion|Scroll|Throw)_[^"]+)"\]')
 
 lua = CATALOG_LUA.read_text(encoding="utf-8")
 discovery = DISCOVERY_LUA.read_text(encoding="utf-8")
@@ -120,6 +125,17 @@ def check_container(entries, container_name, use_costs, label_handle, desc_handl
         f"{container_name}: container não deve ter ImmediateCast")
 
 
+def check_throw_reads_projectile_spell():
+    assert "Catalog.ProjectileSpells[" in discovery, (
+        "o arremesso herda o spell que o item dispara ao quebrar; esse dado não é legível em "
+        "runtime (ScriptConfigGlobalParameters vem vazio, medido in-game) e é assado por "
+        "collect.py em Catalog.ProjectileSpells")
+    baked = re.findall(r'\["([0-9a-f-]{36})"\] = "([^"]+)"', lua)
+    assert len(baked) > 50, (
+        f"Catalog.ProjectileSpells tem {len(baked)} templates: sem esse mapa nenhum item entra "
+        "na lista de arremesso — rode python3 tools/collect.py")
+
+
 def check_spell_names_never_collide():
     assert 'statName .. "_" .. #statName' in discovery, (
         "o nome do sub-spell tem de terminar no comprimento do stat: o jogo esconde um "
@@ -165,20 +181,26 @@ def check_runtime_tables():
         f"Catalog.lua traz sub-spell de build time: {leaked[:3]} — quem cria é Discovery.lua")
 
 
-def check_category_rules(container_name, prefix, use_type, families, inherits):
+def check_category_rules(container_name, prefix, use_types, families, inherits):
     block = lua.split(f'container = "{container_name}"', 1)
     assert len(block) == 2, f"{container_name}: ausente em Catalog.Categories"
-    block = block[1].split("    },", 1)[0]
+    block = block[1].split("    },\n    {", 1)[0]
 
     assert f'prefix = "{prefix}"' in block, f"{container_name}: prefixo errado"
-    assert f'useType = "{use_type}"' in block, f"{container_name}: ItemUseType errado"
-    assert f"inheritsItemSpell = {str(inherits).lower()}" in block, (
+    for use_type in use_types:
+        assert f'["{use_type}"] = true' in block, f"{container_name}: ItemUseType {use_type} ausente"
+    assert f'inheritsItemSpell = {str(inherits == "item").lower()}' in block, (
         f"{container_name}: inheritsItemSpell não bate")
+    assert f'inheritsProjectileSpell = {str(inherits == "projectile").lower()}' in block, (
+        f"{container_name}: inheritsProjectileSpell não bate")
     for family in families:
         assert f'["{family}"] = true' in block, f"{container_name}: família {family} ausente"
+    assert bool(families) == ("families = {\n            [" in block), (
+        f"{container_name}: categoria sem famílias só é aceitável quando a herança do spell do "
+        "item já filtra o que é usável — é o caso do arremesso, que exige ProjectileSpell")
 
-    assert (f'["{container_name}"] = true' in lua) == inherits, (
-        f"{container_name}: Catalog.RemovesItemOnCast não bate com inheritsItemSpell "
+    assert (f'["{container_name}"] = true' in lua) == (inherits != "none"), (
+        f"{container_name}: Catalog.RemovesItemOnCast não bate com a herança "
         "(o servidor decide por essa tabela se remove o item na mão)")
     assert f'"{container_name}",' in lua, f"{container_name}: fora de Catalog.Containers"
 
@@ -190,14 +212,15 @@ def main():
     check_runtime_tables()
     check_dig(entries)
     check_spell_names_never_collide()
+    check_throw_reads_projectile_spell()
 
-    for translation in ("Tomar Poção", "Usar Pergaminho", "Cavar"):
+    for translation in ("Tomar Poção", "Usar Pergaminho", "Cavar", "Arremessar"):
         assert translation in loca_pt, f"faltou a tradução PT-BR de {translation}"
 
-    for (container_name, prefix, use_type, use_costs,
+    for (container_name, prefix, use_types, use_costs,
          families, label_handle, desc_handle, inherits) in CATEGORIES_UNDER_TEST:
         check_container(entries, container_name, use_costs, label_handle, desc_handle)
-        check_category_rules(container_name, prefix, use_type, families, inherits)
+        check_category_rules(container_name, prefix, use_types, families, inherits)
         for handle in (label_handle, desc_handle):
             assert f'contentuid="{handle}"' in loca_en, f"{handle}: sem texto em inglês"
             assert f'contentuid="{handle}"' in loca_pt, f"{handle}: sem texto em PT-BR"

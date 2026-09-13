@@ -268,10 +268,14 @@ def ensure_texture_bank_entry():
 
 def catalog_items_with_rarity():
     catalog = json.loads((ROOT / "data/catalog.json").read_text(encoding="utf-8"))
-    return [item
-            for category in CATEGORIES if category["key"] in ENABLED_CATEGORIES
-            for item in category_items(category, catalog)
-            if (item.get("rarity") or "").lower() in RARITIES and item["icon"]]
+    by_stat = {}
+    for category in CATEGORIES:
+        if category["key"] not in ENABLED_CATEGORIES:
+            continue
+        for item in category_items(category, catalog):
+            if (item.get("rarity") or "").lower() in RARITIES and item["icon"]:
+                by_stat.setdefault(item["stat"], item)
+    return list(by_stat.values())
 
 
 def main():

@@ -199,11 +199,13 @@ local function resync()
     local queryAnchor = members[1]
 
     local changed = {}
-    for template, spell in pairs(TemplateToSpell) do
+    for template, spells in pairs(TemplateToSpell) do
         local count = countInParty(template, queryAnchor)
-        if partyCountBySpell[spell] ~= count then
-            partyCountBySpell[spell] = count
-            if count > 0 then changed[spell] = count end
+        for _, spell in ipairs(spells) do
+            if partyCountBySpell[spell] ~= count then
+                partyCountBySpell[spell] = count
+                if count > 0 then changed[spell] = count end
+            end
         end
     end
 
@@ -218,8 +220,8 @@ local function resync()
 end
 
 local function refreshTemplate(template)
-    local spell = TemplateToSpell[template]
-    if not spell then return end
+    local spells = TemplateToSpell[template]
+    if not spells then return end
     local members = partyMembers()
     if #members == 0 then return end
 
@@ -229,23 +231,29 @@ local function refreshTemplate(template)
 
     local count = countInParty(template, members[1])
 
-    if partyCountBySpell[spell] ~= count then
-        partyCountBySpell[spell] = count
-        rebuildContainer(SpellContainer[spell])
-        if count > 0 then pushLabels({ [spell] = count }) end
-    end
+    for _, spell in ipairs(spells) do
+        if partyCountBySpell[spell] ~= count then
+            partyCountBySpell[spell] = count
+            rebuildContainer(SpellContainer[spell])
+            if count > 0 then pushLabels({ [spell] = count }) end
+        end
 
-    for _, character in ipairs(members) do
-        if count > 0 then grantSpell(character, spell) else revokeSpell(character, spell) end
+        for _, character in ipairs(members) do
+            if count > 0 then grantSpell(character, spell) else revokeSpell(character, spell) end
+        end
     end
 end
 
+local function templateCount(template)
+    local spells = TemplateToSpell[template]
+    return spells and partyCountBySpell[spells[1]]
+end
+
 local function pollUntilCountChanges(template, triesLeft)
-    local spell = TemplateToSpell[template]
-    local before = partyCountBySpell[spell]
+    local before = templateCount(template)
     Ext.Timer.WaitFor(POLL_STEP_MS, function()
         refreshTemplate(template)
-        if triesLeft > 1 and partyCountBySpell[spell] == before then
+        if triesLeft > 1 and templateCount(template) == before then
             pollUntilCountChanges(template, triesLeft - 1)
         end
     end)
@@ -275,8 +283,12 @@ Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
     local remaining = (partyCountBySpell[spell] or 0) - 1
     if remaining <= 0 then return end
 
-    partyCountBySpell[spell] = remaining
-    pushLabels({ [spell] = remaining })
+    local changed = {}
+    for _, sibling in ipairs(TemplateToSpell[key] or {}) do
+        partyCountBySpell[sibling] = remaining
+        changed[sibling] = remaining
+    end
+    pushLabels(changed)
     selfTriggeredUseByTemplate[key] = true
     Ext.Timer.WaitFor(USE_RECONCILE_MS, function()
         selfTriggeredUseByTemplate[key] = nil

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import functools
+import json
 import os
 import re
 from pathlib import Path
@@ -11,6 +12,7 @@ STATS_DIR = ROOT / "src/Public/SharedActions/Stats/Generated/Data"
 LOCALIZATION_ROOT = ROOT / "src/Mods/SharedActions/Localization"
 LUA_DIR = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua"
 ITEM_ATLAS_LSX = ROOT / "src/Public/SharedActions/GUI/SharedActions_Items.lsx"
+CATALOG_JSON = ROOT / "data/catalog.json"
 
 LANGUAGES = {
     "English": ("label", "desc"),
@@ -22,7 +24,7 @@ CATEGORIES = [
         "key": "potions",
         "spell": "SA_TakePotion",
         "prefix": "SA_Potion_",
-        "use_type": "Potion",
+        "use_types": {"Potion"},
         "label": "Take Potion",
         "label_handle": "h366930b4g0001g4000g9000g366930b40001",
         "desc_handle": "h366930b4g0003g4000g9000g366930b40003",
@@ -38,7 +40,7 @@ CATEGORIES = [
         "key": "scrolls",
         "spell": "SA_UseScroll",
         "prefix": "SA_Scroll_",
-        "use_type": "Scroll",
+        "use_types": {"Scroll"},
         "label": "Use Scroll",
         "label_handle": "h366930b4g0002g4000g9000g366930b40002",
         "desc_handle": "h366930b4g0004g4000g9000g366930b40004",
@@ -50,9 +52,32 @@ CATEGORIES = [
         "families": {"BASE_BOOK_Scroll_Magic"},
         "inherits_item_spell": True,
     },
+    {
+        "key": "throwables",
+        "spell": "SA_ThrowItem",
+        "prefix": "SA_Throw_",
+        "use_types": {"Potion", "Grenade", "Throwable"},
+        "label": "Throw Item",
+        "label_handle": "h366930b4g0007g4000g9000g366930b40007",
+        "desc_handle": "h366930b4g0008g4000g9000g366930b40008",
+        "desc": "Throw an item carried by anyone in the party.",
+        "label_ptbr": "Arremessar",
+        "desc_ptbr": "Arremessa um item carregado por qualquer membro do grupo.",
+        "icon": "SharedActions_Throw" if CUSTOM_ICON_ENABLED else "Action_Throw",
+        "use_costs": "ActionPoint:1",
+        "families": set(),
+        "inherits_projectile_spell": True,
+        "force_use_costs": True,
+        "overrides": {
+            "TargetRadius": "ThrownObjectRange",
+            "TargetConditions": "not Self()",
+            "SpellFlags": ["IsHarmful", "RangeIgnoreVerticalThreshold",
+                           "HasHighGroundRangeExtension", "IgnoreSilence", "IgnoreVisionBlock"],
+        },
+    },
 ]
 
-ENABLED_CATEGORIES = {"potions", "scrolls"}
+ENABLED_CATEGORIES = {"potions", "scrolls", "throwables"}
 
 DIG = {
     "spell": "SA_Dig",
@@ -88,6 +113,21 @@ def atlas_icon_keys():
     return frozenset(MAP_KEY_PATTERN.findall(ITEM_ATLAS_LSX.read_text(encoding="utf-8")))
 
 
+@functools.lru_cache(maxsize=1)
+def projectile_spells():
+    if not any(c.get("inherits_projectile_spell") for c in enabled_categories()):
+        return {}
+    if not CATALOG_JSON.exists():
+        raise SystemExit(f"{CATALOG_JSON} não existe: rode python3 tools/collect.py")
+    catalog = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
+    spells = {item["template"]: item["spell"] for item in catalog.get("throwables", [])}
+    if not spells:
+        raise SystemExit(
+            "catalog.json sem throwables: o arremesso herda o spell que o item dispara "
+            "ao quebrar, e esse dado não é legível em runtime — rode python3 tools/collect.py")
+    return spells
+
+
 def enabled_categories():
     return [c for c in CATEGORIES if c["key"] in ENABLED_CATEGORIES]
 
@@ -97,10 +137,26 @@ def atlas_icon_key(stat):
 
 
 def category_items(category, catalog):
-    items = [i for i in catalog[category["key"]] if i["family"] in category["families"]]
-    if category.get("inherits_item_spell"):
+    items = catalog.get(category["key"], [])
+    if category["families"]:
+        items = [i for i in items if i["family"] in category["families"]]
+    if category.get("inherits_item_spell") or category.get("inherits_projectile_spell"):
         items = [i for i in items if i["spell"]]
     return items
+
+
+def removes_item_on_cast(category):
+    return bool(category.get("inherits_item_spell") or category.get("inherits_projectile_spell"))
+
+
+def lua_flag(category, field):
+    return str(bool(category.get(field))).lower()
+
+
+def lua_value(value):
+    if isinstance(value, str):
+        return f'"{value}"'
+    return "{ " + ", ".join(f'"{item}"' for item in value) + " }"
 
 
 def emit_base_entry():
@@ -167,24 +223,36 @@ def emit_catalog_lua():
 
     lines += ["}", "", "Catalog.RemovesItemOnCast = {"]
     lines += [f'    ["{c["spell"]}"] = true,'
-              for c in enabled_categories() if c.get("inherits_item_spell")]
+              for c in enabled_categories() if removes_item_on_cast(c)]
 
     lines += ["}", "", "Catalog.Categories = {"]
     for category in enabled_categories():
-        inherits = str(bool(category.get("inherits_item_spell"))).lower()
         lines += [
             "    {",
             f'        container = "{category["spell"]}",',
             f'        prefix = "{category["prefix"]}",',
-            f'        useType = "{category["use_type"]}",',
-            f'        inheritsItemSpell = {inherits},',
-            "        families = {",
+            f'        inheritsItemSpell = {lua_flag(category, "inherits_item_spell")},',
+            f'        inheritsProjectileSpell = '
+            f'{lua_flag(category, "inherits_projectile_spell")},',
+            "        useTypes = {",
         ]
+        lines += [f'            ["{use_type}"] = true,'
+                  for use_type in sorted(category["use_types"])]
+        lines += ["        },", "        families = {"]
         lines += [f'            ["{family}"] = true,' for family in sorted(category["families"])]
+        lines += ["        },"]
+        if category.get("force_use_costs"):
+            lines += [f'        forcedUseCosts = "{category["use_costs"]}",']
+        lines += ["        overrides = {"]
+        lines += [f"            {field} = {lua_value(value)},"
+                  for field, value in sorted(category.get("overrides", {}).items())]
         lines += ["        },", "    },"]
 
     lines += ["}", "", "Catalog.IconKeys = {"]
     lines += [f'    ["{key}"] = true,' for key in sorted(atlas_icon_keys())]
+
+    lines += ["}", "", "Catalog.ProjectileSpells = {"]
+    lines += [f'    ["{guid}"] = "{spell}",' for guid, spell in sorted(projectile_spells().items())]
 
     lines += ["}", ""]
     lines += [f"Catalog.{table} = {{}}" for table in RUNTIME_TABLES]
@@ -232,7 +300,9 @@ def main():
             "\n".join(lines + ["</contentList>"]) + "\n", encoding="utf-8")
 
     (LUA_DIR / "Catalog.lua").write_text(emit_catalog_lua(), encoding="utf-8")
-    print(f"atlas: {len(atlas_icon_keys())} chaves de icone | sub-spells: criados em runtime")
+    print(f"atlas: {len(atlas_icon_keys())} chaves de icone "
+          f"| arremesso: {len(projectile_spells())} templates com ProjectileSpell "
+          f"| sub-spells: criados em runtime")
 
 
 if __name__ == "__main__":

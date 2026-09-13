@@ -2,11 +2,16 @@ local Catalog = Catalog
 
 local MAX_FAMILY_DEPTH = 12
 local RETIRED_SPELLS = { "SA_PotionProbe_OBJ_Potion_Healing" }
+local AREA_FIELDS = { "AreaRadius", "ExplodeRadius" }
 local HANDLE_FORMAT = "h%08xg%04xg%04xg%04xg%012x"
 
-local categoryByUseType = {}
+local categoriesByUseType = {}
 for _, category in ipairs(Catalog.Categories) do
-    categoryByUseType[category.useType] = category
+    for useType in pairs(category.useTypes) do
+        local sharing = categoriesByUseType[useType] or {}
+        sharing[#sharing + 1] = category
+        categoriesByUseType[useType] = sharing
+    end
 end
 
 local function log(...)
@@ -30,6 +35,14 @@ local function baseFamily(templates, id)
     return nil
 end
 
+local function castableSpell(name)
+    if not name or name == "" then return nil end
+    local stat = Ext.Stats.Get(name, nil, false)
+    if not stat then return nil end
+    if stat.ContainerSpells and stat.ContainerSpells ~= "" then return nil end
+    return name
+end
+
 local function itemSpellOf(template)
     local found = nil
     for _, action in ipairs(template.OnUsePeaceActions or {}) do
@@ -37,11 +50,15 @@ local function itemSpellOf(template)
             found = action.Spell
         end
     end
-    if not found then return nil end
-    local stat = Ext.Stats.Get(found, nil, false)
-    if not stat then return nil end
-    if stat.ContainerSpells and stat.ContainerSpells ~= "" then return nil end
-    return found
+    return castableSpell(found)
+end
+
+local function parentSpellOf(category, stat, template)
+    if category.inheritsItemSpell then return itemSpellOf(template) end
+    if category.inheritsProjectileSpell then
+        return castableSpell(Catalog.ProjectileSpells[stat.RootTemplate])
+    end
+    return Catalog.BaseEntry
 end
 
 local function translatedHandle(translatedString)
@@ -73,12 +90,36 @@ local function createSubSpell(spell, category, statName, stat, template, parent,
     created.SpellContainerID = category.container
     created.ContainerSpells = ""
     created.Icon = iconFor(statName, template)
-    created.UseCosts = stat.UseCosts
+    created.UseCosts = category.forcedUseCosts or stat.UseCosts
     created.DisplayName = handle .. ";1"
 
-    if not category.inheritsItemSpell then
-        local description = translatedHandle(template.Description)
-        if description then created.Description = description .. ";1" end
+    if not created.Description or created.Description == "" then
+        local description = translatedHandle(template.TechnicalDescription)
+        local params = template.TechnicalDescriptionParams
+        if not description then
+            description = translatedHandle(template.Description)
+            params = nil
+        end
+        if description then
+            created.Description = description .. ";1"
+            created.DescriptionParams = params or ""
+        end
+    end
+
+    local parentStat = Ext.Stats.Get(parent, nil, false)
+    for _, field in ipairs(AREA_FIELDS) do
+        local inherited = parentStat and parentStat[field]
+        if inherited and inherited ~= "" then
+            if created[field] ~= inherited then
+                log("raio nao herdado:", spell, field, tostring(created[field]),
+                    "| pai", parent, tostring(inherited))
+            end
+            created[field] = inherited
+        end
+    end
+
+    for field, value in pairs(category.overrides) do
+        created[field] = value
     end
 
     created:Sync()
@@ -86,11 +127,8 @@ local function createSubSpell(spell, category, statName, stat, template, parent,
 end
 
 local function register(category, statName, stat, template, index)
-    local parent = Catalog.BaseEntry
-    if category.inheritsItemSpell then
-        parent = itemSpellOf(template)
-        if not parent then return false end
-    end
+    local parent = parentSpellOf(category, stat, template)
+    if not parent then return false end
 
     local handle = handleFor(index)
     local spell = spellNameFor(category, statName)
@@ -99,12 +137,23 @@ local function register(category, statName, stat, template, index)
     end
 
     local templateKey = template.Name .. "_" .. template.Id
-    Catalog.TemplateToSpell[string.lower(templateKey)] = spell
+    local key = string.lower(templateKey)
+    local sharing = Catalog.TemplateToSpell[key] or {}
+    sharing[#sharing + 1] = spell
+    Catalog.TemplateToSpell[key] = sharing
     Catalog.SpellToTemplate[spell] = templateKey
     Catalog.SpellContainer[spell] = category.container
     Catalog.Labels[spell] = { handle, translatedHandle(template.DisplayName) or "" }
     Catalog.LegacySpells[#Catalog.LegacySpells + 1] = category.prefix .. statName
     return true
+end
+
+local function accepts(category, stat, family)
+    if not category.forcedUseCosts and (not stat.UseCosts or stat.UseCosts == "") then
+        return false
+    end
+    if next(category.families) == nil then return true end
+    return family ~= nil and category.families[family] == true
 end
 
 local function discover()
@@ -113,31 +162,36 @@ local function discover()
     if not templates then return log("ALERTA: GetAllRootTemplates devolveu nil") end
 
     local registered, unknownFamilies, index = 0, {}, 0
-    local skipped = { sem_template = 0, sem_custo = 0, sem_familia = 0, sem_magia = 0 }
+    local perContainer, missingParent = {}, {}
+    local skipped = { sem_template = 0, recusado = 0, sem_magia = 0 }
 
     for _, statName in ipairs(Ext.Stats.GetStats("Object") or {}) do
         local stat = Ext.Stats.Get(statName, nil, false)
-        local category = stat and categoryByUseType[stat.ItemUseType]
+        local sharing = stat and categoriesByUseType[stat.ItemUseType]
 
-        if category and statName:sub(1, 1) ~= "_" then
+        if sharing and statName:sub(1, 1) ~= "_" then
             local template = stat.RootTemplate and templates[stat.RootTemplate]
             if not template then
                 skipped.sem_template = skipped.sem_template + 1
-            elseif not stat.UseCosts or stat.UseCosts == "" then
-                skipped.sem_custo = skipped.sem_custo + 1
             else
                 local family = baseFamily(templates, template.Id)
-                if not family or not category.families[family] then
-                    skipped.sem_familia = skipped.sem_familia + 1
-                    if family then
-                        unknownFamilies[family] = (unknownFamilies[family] or 0) + 1
-                    end
-                else
-                    index = index + 1
-                    if register(category, statName, stat, template, index) then
-                        registered = registered + 1
+                for _, category in ipairs(sharing) do
+                    if not accepts(category, stat, family) then
+                        skipped.recusado = skipped.recusado + 1
+                        if family then
+                            unknownFamilies[family] = (unknownFamilies[family] or 0) + 1
+                        end
                     else
-                        skipped.sem_magia = skipped.sem_magia + 1
+                        index = index + 1
+                        if register(category, statName, stat, template, index) then
+                            registered = registered + 1
+                            perContainer[category.container] =
+                                (perContainer[category.container] or 0) + 1
+                        else
+                            skipped.sem_magia = skipped.sem_magia + 1
+                            missingParent[category.container] =
+                                (missingParent[category.container] or 0) + 1
+                        end
                     end
                 end
             end
@@ -149,9 +203,12 @@ local function discover()
     end
 
     log("descoberta:", registered, "sub-spells em", Ext.Timer.MonotonicTime() - started, "ms")
+    for container, count in pairs(perContainer) do
+        log("container:", container, count, "| sem magia para herdar:",
+            missingParent[container] or 0)
+    end
     log("descartados: sem template", skipped.sem_template,
-        "| sem custo", skipped.sem_custo,
-        "| fora da familia", skipped.sem_familia,
+        "| fora da categoria", skipped.recusado,
         "| sem magia usavel", skipped.sem_magia)
 
     for family, count in pairs(unknownFamilies) do

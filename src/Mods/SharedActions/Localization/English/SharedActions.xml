@@ -4,6 +4,8 @@
 	<content contentuid="h366930b4g0003g4000g9000g366930b40003" version="1">Drink a potion carried by anyone in the party.</content>
 	<content contentuid="h366930b4g0002g4000g9000g366930b40002" version="1">Use Scroll</content>
 	<content contentuid="h366930b4g0004g4000g9000g366930b40004" version="1">Use a scroll carried by anyone in the party.</content>
+	<content contentuid="h366930b4g0007g4000g9000g366930b40007" version="1">Throw Item</content>
+	<content contentuid="h366930b4g0008g4000g9000g366930b40008" version="1">Throw an item carried by anyone in the party.</content>
 	<content contentuid="h366930b4g0005g4000g9000g366930b40005" version="1">Dig</content>
 	<content contentuid="h366930b4g0006g4000g9000g366930b40006" version="1">Dig with a shovel carried by anyone in the party.</content>
 </contentList>

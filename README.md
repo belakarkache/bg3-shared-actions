@@ -2,11 +2,11 @@
 
 *[English](#english) · [Português](#português)*
 
-Use any party member's potions, scrolls and shovel straight from your Action
-Bar — no more passing items around mid-fight. Works with modded items too: the
+Use any party member's potions, scrolls, throwables and shovel straight from
+your Action Bar — no more passing items around mid-fight. Works with modded items too: the
 list is discovered from your own installation every time you load a save.
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue) ![BG3](https://img.shields.io/badge/BG3-Patch%208-green)
+![Version](https://img.shields.io/badge/version-1.2.0-blue) ![BG3](https://img.shields.io/badge/BG3-Patch%208-green)
 
 ---
 
@@ -14,10 +14,12 @@ list is discovered from your own installation every time you load a save.
 
 ### What it does
 
-Adds three buttons to the Action Bar:
+Adds four buttons to the Action Bar:
 
 - **Take Potion** — every potion carried by anyone in the party
 - **Use Scroll** — every scroll carried by anyone in the party
+- **Throw Item** — every potion, grenade and throwable carried by the party that
+  does something when it breaks
 - **Dig** — available to everyone as long as *someone* in the party carries a
   shovel, and no shovel ever changes hands
 
@@ -27,7 +29,8 @@ the tooltip.
 
 It uses the game's own rules: the Bonus Action (or Action) is charged by the
 engine, and buttons grey out when you can't afford them. Scrolls keep their
-native targeting, animation and effect.
+native targeting, animation and effect, and thrown items keep the projectile,
+area and effect the game gives them when they break.
 
 ### Requirements
 
@@ -63,10 +66,12 @@ native targeting, animation and effect.
 
 ### O que faz
 
-Adiciona três botões à Action Bar:
+Adiciona quatro botões à Action Bar:
 
 - **Tomar Poção** — todas as poções carregadas por qualquer membro do grupo
 - **Usar Pergaminho** — todos os pergaminhos carregados por qualquer membro
+- **Arremessar Item** — toda poção, granada e arremessável do grupo que faz algo
+  ao se quebrar
 - **Cavar** — disponível para todo o grupo enquanto *alguém* estiver com uma pá,
   e nenhuma pá troca de dono
 
@@ -75,7 +80,8 @@ o que o grupo tem de verdade, e a quantidade aparece no tooltip.
 
 O mod usa as regras do próprio jogo: quem cobra a Ação Bônus (ou a Ação) é a
 engine, e o botão fica acinzentado quando você não tem o recurso. Pergaminhos
-mantêm mira, animação e efeito nativos.
+mantêm mira, animação e efeito nativos, e o item arremessado mantém o projétil,
+a área e o efeito que o jogo lhe dá ao se quebrar.
 
 ### Requisitos
 
