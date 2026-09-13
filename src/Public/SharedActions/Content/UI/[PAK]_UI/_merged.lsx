@@ -34,6 +34,16 @@
 					<attribute id="Template" type="FixedString" value="SharedActions_Items" />
 					<attribute id="Type" type="int64" value="0" />
 				</node>
+				<node id="Resource">
+					<attribute id="ID" type="FixedString" value="bb192970-b08e-4fb5-9b7e-ff790d8909f7" />
+					<attribute id="Localized" type="bool" value="False" />
+					<attribute id="Name" type="LSString" value="SharedActions_Dig" />
+					<attribute id="SRGB" type="bool" value="True" />
+					<attribute id="SourceFile" type="LSString" value="Public/SharedActions/Assets/Textures/Icons/SharedActions_Dig.dds" />
+					<attribute id="Streaming" type="bool" value="True" />
+					<attribute id="Template" type="FixedString" value="SharedActions_Dig" />
+					<attribute id="Type" type="int64" value="0" />
+				</node>
 			</children>
 		</node>
 	</region>

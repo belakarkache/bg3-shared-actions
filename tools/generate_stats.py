@@ -54,6 +54,20 @@ CATEGORIES = [
 
 ENABLED_CATEGORIES = {"potions", "scrolls"}
 
+DIG = {
+    "spell": "SA_Dig",
+    "vanilla_spell": "Target_Dig",
+    "status": "HAS_SHOVEL",
+    "tag": "SHOVEL_e2db698a-0705-43f4-9674-06fff1fd1e67",
+    "label": "Dig",
+    "label_handle": "h366930b4g0005g4000g9000g366930b40005",
+    "desc_handle": "h366930b4g0006g4000g9000g366930b40006",
+    "desc": "Dig with a shovel carried by anyone in the party.",
+    "label_ptbr": "Cavar",
+    "desc_ptbr": "Cava com uma pá carregada por qualquer membro do grupo.",
+    "icon": "SharedActions_Dig" if CUSTOM_ICON_ENABLED else "Item_TOOL_GEN_Shovel_A",
+}
+
 BASE_ENTRY = "SA_Base"
 BASE_SPELL_ANIMATION = ("03496c4a-49e0-4132-b585-3e5ecd1ad8e5,,;,,;"
                         "bcc3b0d9-f04f-4448-aab0-e0ad641167cc,,;"
@@ -122,6 +136,30 @@ def emit_container(category):
     ])
 
 
+def emit_dig_entry():
+    return "\n".join([
+        f'new entry "{DIG["spell"]}"',
+        'type "SpellData"',
+        f'using "{DIG["vanilla_spell"]}"',
+        f'data "Icon" "{DIG["icon"]}"',
+        f'data "DisplayName" "{DIG["label_handle"]};1"',
+        f'data "Description" "{DIG["desc_handle"]};1"',
+        "",
+    ])
+
+
+def emit_dig_lua():
+    return "\n".join([
+        "Catalog.Dig = {",
+        f'    spell = "{DIG["spell"]}",',
+        f'    vanillaSpell = "{DIG["vanilla_spell"]}",',
+        f'    status = "{DIG["status"]}",',
+        f'    tag = "{DIG["tag"]}",',
+        "}",
+        "",
+    ])
+
+
 def emit_catalog_lua():
     lines = ["Catalog = {}", "", f'Catalog.BaseEntry = "{BASE_ENTRY}"', "",
              "Catalog.Containers = {"]
@@ -150,7 +188,7 @@ def emit_catalog_lua():
 
     lines += ["}", ""]
     lines += [f"Catalog.{table} = {{}}" for table in RUNTIME_TABLES]
-    lines += [""]
+    lines += ["", emit_dig_lua()]
     return "\n".join(lines)
 
 
@@ -173,9 +211,19 @@ def main():
                 f'{category[desc_key]}</content>')
         print(f'{category["spell"]}: container vazio, preenchido em runtime')
 
+    for lang, (label_key, desc_key) in LANGUAGES.items():
+        localization[lang].append(
+            f'\t<content contentuid="{DIG["label_handle"]}" version="1">'
+            f'{DIG[label_key]}</content>')
+        localization[lang].append(
+            f'\t<content contentuid="{DIG["desc_handle"]}" version="1">'
+            f'{DIG[desc_key]}</content>')
+
     for stale in STATS_DIR.glob("Spell_*.txt"):
         stale.unlink()
     (STATS_DIR / "Spell_Shout.txt").write_text("\n".join(entries), encoding="utf-8")
+    (STATS_DIR / "Spell_Target.txt").write_text(emit_dig_entry(), encoding="utf-8")
+    print(f'{DIG["spell"]}: herda {DIG["vanilla_spell"]}, concedida por {DIG["status"]}')
 
     for lang, lines in localization.items():
         directory = LOCALIZATION_ROOT / lang

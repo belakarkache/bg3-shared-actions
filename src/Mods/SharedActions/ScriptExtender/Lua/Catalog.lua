@@ -158,3 +158,10 @@ Catalog.SpellToTemplate = {}
 Catalog.SpellContainer = {}
 Catalog.Labels = {}
 Catalog.LegacySpells = {}
+
+Catalog.Dig = {
+    spell = "SA_Dig",
+    vanillaSpell = "Target_Dig",
+    status = "HAS_SHOVEL",
+    tag = "SHOVEL_e2db698a-0705-43f4-9674-06fff1fd1e67",
+}

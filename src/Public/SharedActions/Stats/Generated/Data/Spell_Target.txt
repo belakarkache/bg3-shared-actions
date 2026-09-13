@@ -1,0 +1,6 @@
+new entry "SA_Dig"
+type "SpellData"
+using "Target_Dig"
+data "Icon" "SharedActions_Dig"
+data "DisplayName" "h366930b4g0005g4000g9000g366930b40005;1"
+data "Description" "h366930b4g0006g4000g9000g366930b40006;1"

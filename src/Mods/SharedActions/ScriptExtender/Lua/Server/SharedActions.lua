@@ -7,6 +7,7 @@ local Containers = Catalog.Containers
 local Labels = Catalog.Labels
 local LegacySpells = Catalog.LegacySpells
 local RemovesItemOnCast = Catalog.RemovesItemOnCast
+local Dig = Catalog.Dig
 
 local POLL_TRIES, POLL_STEP_MS = 12, 250
 local USE_RECONCILE_MS = 10000
@@ -18,6 +19,9 @@ local reconciledWithSave = {}
 local partyCountBySpell = {}
 local appliedContainerSpells = {}
 local selfTriggeredUseByTemplate = {}
+local digGrantedByCharacter = {}
+local shovelInParty = false
+local digTargetByCaster = {}
 
 local function log(...)
     print("[SharedActions]", ...)
@@ -29,6 +33,27 @@ local function partyMembers()
         members[#members + 1] = row[1]
     end
     return members
+end
+
+local function carriesShovel(character)
+    local shovel = Osi.GetItemByTagInInventory(Dig.tag, character)
+    return shovel ~= nil and shovel ~= ""
+end
+
+local function grantDig(character)
+    if Osi.HasActiveStatus(character, Dig.status) == 0 then
+        Osi.ApplyStatus(character, Dig.status, -1.0, 1, character)
+    end
+    if digGrantedByCharacter[character] then return end
+    Osi.AddSpell(character, Dig.spell, 0, 0)
+    digGrantedByCharacter[character] = true
+end
+
+local function revokeDig(character, carries)
+    if not digGrantedByCharacter[character] then return end
+    digGrantedByCharacter[character] = nil
+    Osi.RemoveSpell(character, Dig.spell, 0)
+    if not carries then Osi.RemoveStatus(character, Dig.status) end
 end
 
 local function countInParty(template, queryAnchor)
@@ -145,6 +170,29 @@ local function setupCharacter(character, available)
     reconciledWithSave[character] = true
 end
 
+local function refreshDig(members)
+    members = members or partyMembers()
+    if #members == 0 then return end
+
+    local carriers = {}
+    local hadShovel = shovelInParty
+    shovelInParty = false
+    for _, character in ipairs(members) do
+        carriers[character] = carriesShovel(character)
+        if carriers[character] then shovelInParty = true end
+    end
+
+    for _, character in ipairs(members) do
+        if shovelInParty then
+            grantDig(character)
+        else
+            revokeDig(character, carriers[character])
+        end
+    end
+
+    if hadShovel ~= shovelInParty then log("pa na party:", shovelInParty) end
+end
+
 local function resync()
     local members = partyMembers()
     if #members == 0 then return end
@@ -166,6 +214,7 @@ local function resync()
 
     rebuildAllContainers()
     pushLabels(changed)
+    refreshDig(members)
 end
 
 local function refreshTemplate(template)
@@ -235,12 +284,25 @@ Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
     end)
 end)
 
-Ext.Osiris.RegisterListener("TemplateAddedTo", 4, "after", function(template)
+Ext.Osiris.RegisterListener("UsingSpellOnTarget", 6, "after", function(caster, target, spell)
+    if spell == Dig.spell then digTargetByCaster[caster] = target end
+end)
+
+Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
+    local target = digTargetByCaster[caster]
+    if spell ~= Dig.spell or not target then return end
+    digTargetByCaster[caster] = nil
+    Osi.UseSpell(caster, Dig.vanillaSpell, target)
+end)
+
+Ext.Osiris.RegisterListener("TemplateAddedTo", 4, "after", function(template, item)
     refreshTemplate(string.lower(template))
+    if not shovelInParty and item and Osi.IsTagged(item, Dig.tag) == 1 then refreshDig() end
 end)
 
 Ext.Osiris.RegisterListener("TemplateRemovedFrom", 3, "after", function(template)
     refreshTemplate(string.lower(template))
+    if shovelInParty then refreshDig() end
 end)
 
 Ext.Osiris.RegisterListener("TemplateUseFinished", 4, "after", function(_, template)
@@ -259,10 +321,12 @@ end)
 Ext.Osiris.RegisterListener("CharacterLeftParty", 1, "after", function(character)
     grantedSpellsByCharacter[character] = nil
     reconciledWithSave[character] = nil
+    revokeDig(character, carriesShovel(character))
 end)
 
 Ext.Osiris.RegisterListener("LevelGameplayStarted", 2, "after", function()
     grantedSpellsByCharacter, partyCountBySpell = {}, {}
     reconciledWithSave, appliedContainerSpells = {}, {}
+    digGrantedByCharacter, shovelInParty = {}, false
     resync()
 end)

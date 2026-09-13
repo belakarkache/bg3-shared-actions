@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STATS_DIR = ROOT / "src/Public/SharedActions/Stats/Generated/Data"
 CATALOG_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Catalog.lua"
 DISCOVERY_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/Discovery.lua"
+SERVER_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/SharedActions.lua"
 LOCA_EN = ROOT / "src/Mods/SharedActions/Localization/English/SharedActions.xml"
 LOCA_PT = ROOT / "src/Mods/SharedActions/Localization/BrazilianPortuguese/SharedActions.xml"
 ATLAS_LSX = ROOT / "src/Public/SharedActions/GUI/SharedActions_Items.lsx"
@@ -26,6 +27,17 @@ CATEGORIES_UNDER_TEST = [
      True),
 ]
 
+DIG_UNDER_TEST = {
+    "spell": "SA_Dig",
+    "vanillaSpell": "Target_Dig",
+    "status": "HAS_SHOVEL",
+    "tag": "SHOVEL_e2db698a-0705-43f4-9674-06fff1fd1e67",
+    "label_handle": "h366930b4g0005g4000g9000g366930b40005",
+    "desc_handle": "h366930b4g0006g4000g9000g366930b40006",
+}
+
+STATS_FILES = ["Spell_Shout.txt", "Spell_Target.txt"]
+
 RUNTIME_TABLES = ["TemplateToSpell", "SpellToTemplate", "SpellContainer", "Labels",
                   "LegacySpells"]
 
@@ -36,6 +48,7 @@ PREFIX_COLLIDING_STATS = [
 ]
 
 MAP_KEY_PATTERN = re.compile(r'MapKey" type="FixedString" value="([^"]+)"')
+ATLAS_PATH_PATTERN = re.compile(r'id="Path" type="string" value="([^"]+)"')
 ATLAS_UUID_PATTERN = re.compile(r'id="UUID" type="FixedString" value="([^"]+)"')
 DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
 USING_PATTERN = re.compile(r'^using "([^"]+)"', re.M)
@@ -44,23 +57,25 @@ SUB_SPELL_PATTERN = re.compile(r'\["(SA_(?:Potion|Scroll)_[^"]+)"\]')
 
 lua = CATALOG_LUA.read_text(encoding="utf-8")
 discovery = DISCOVERY_LUA.read_text(encoding="utf-8")
+server = SERVER_LUA.read_text(encoding="utf-8")
 loca_en = LOCA_EN.read_text(encoding="utf-8")
 loca_pt = LOCA_PT.read_text(encoding="utf-8")
 
 
 def parse_stats():
     files = sorted(STATS_DIR.glob("Spell_*.txt"))
-    assert [path.name for path in files] == ["Spell_Shout.txt"], (
-        "os sub-spells nascem em runtime: o build só emite Spell_Shout.txt, "
-        f"mas achei {[path.name for path in files]}")
+    assert [path.name for path in files] == STATS_FILES, (
+        "os sub-spells nascem em runtime: o build só emite o esqueleto "
+        f"{STATS_FILES}, mas achei {[path.name for path in files]}")
 
     entries = {}
-    for block in files[0].read_text(encoding="utf-8").split("new entry ")[1:]:
-        name = block.split("\n", 1)[0].strip().strip('"')
-        fields = dict(DATA_FIELD_PATTERN.findall(block))
-        parent = USING_PATTERN.search(block)
-        fields["_using"] = parent.group(1) if parent else None
-        entries[name] = fields
+    for path in files:
+        for block in path.read_text(encoding="utf-8").split("new entry ")[1:]:
+            name = block.split("\n", 1)[0].strip().strip('"')
+            fields = dict(DATA_FIELD_PATTERN.findall(block))
+            parent = USING_PATTERN.search(block)
+            fields["_using"] = parent.group(1) if parent else None
+            entries[name] = fields
     return entries
 
 
@@ -74,8 +89,13 @@ def check_base_entry(entries):
 def check_icon_atlases():
     merged = MERGED_LSX.read_text(encoding="utf-8")
     for lsx in sorted(GUI_DIR.glob("*.lsx")):
-        uuid = ATLAS_UUID_PATTERN.search(lsx.read_text(encoding="utf-8")).group(1)
+        text = lsx.read_text(encoding="utf-8")
+        uuid = ATLAS_UUID_PATTERN.search(text).group(1)
         assert f'value="{uuid}"' in merged, f"{lsx.name}: UUID {uuid} ausente no _merged.lsx"
+        dds = ROOT / "src" / ATLAS_PATH_PATTERN.search(text).group(1)
+        assert dds.exists(), (
+            f"{lsx.name} aponta para {dds.name}, que não existe: o jogo morre em LoadModule "
+            "com atlas sem textura — rode ./tools/make_icon.sh <arte.png> <alvo>")
 
     atlas_keys = set(MAP_KEY_PATTERN.findall(ATLAS_LSX.read_text(encoding="utf-8")))
     lua_keys = set(ICON_KEY_PATTERN.findall(lua))
@@ -111,6 +131,25 @@ def check_spell_names_never_collide():
             assert name == other or not other.startswith(name), (
                 f"{name} continua sendo prefixo de {other}: a Poção de Cura simples some "
                 "da lista quando uma irmã maior está junto")
+
+
+def check_dig(entries):
+    dig = entries[DIG_UNDER_TEST["spell"]]
+    assert dig["_using"] == DIG_UNDER_TEST["vanillaSpell"], (
+        "SA_Dig tem de herdar Target_Dig: mira, cursor, custo e requisitos vêm de lá")
+    assert dig["DisplayName"] == f'{DIG_UNDER_TEST["label_handle"]};1', "SA_Dig: DisplayName errado"
+    assert dig["Description"] == f'{DIG_UNDER_TEST["desc_handle"]};1', "SA_Dig: Description errada"
+
+    for field, value in DIG_UNDER_TEST.items():
+        if field.endswith("_handle"):
+            continue
+        assert f'{field} = "{value}"' in lua, f"Catalog.Dig.{field} não bate com {value}"
+        assert f'"{value}"' not in server, (
+            f"Server/SharedActions.lua traz {value} hardcoded: quem define é Catalog.Dig")
+
+    assert "Dig.vanillaSpell" in server, (
+        "o goal vanilla só escuta o nome Target_Dig: o cast de SA_Dig tem de ser repassado "
+        "com Osi.UseSpell para a magia de verdade")
 
 
 def check_runtime_tables():
@@ -149,9 +188,10 @@ def main():
     check_base_entry(entries)
     check_icon_atlases()
     check_runtime_tables()
+    check_dig(entries)
     check_spell_names_never_collide()
 
-    for translation in ("Tomar Poção", "Usar Pergaminho"):
+    for translation in ("Tomar Poção", "Usar Pergaminho", "Cavar"):
         assert translation in loca_pt, f"faltou a tradução PT-BR de {translation}"
 
     for (container_name, prefix, use_type, use_costs,
@@ -162,8 +202,12 @@ def main():
             assert f'contentuid="{handle}"' in loca_en, f"{handle}: sem texto em inglês"
             assert f'contentuid="{handle}"' in loca_pt, f"{handle}: sem texto em PT-BR"
 
+    for handle in (DIG_UNDER_TEST["label_handle"], DIG_UNDER_TEST["desc_handle"]):
+        assert f'contentuid="{handle}"' in loca_en, f"{handle}: sem texto em inglês"
+        assert f'contentuid="{handle}"' in loca_pt, f"{handle}: sem texto em PT-BR"
+
     handles = re.findall(r'contentuid="([^"]+)"', loca_en)
-    assert len(handles) == 2 * len(CATEGORIES_UNDER_TEST), (
+    assert len(handles) == 2 * len(CATEGORIES_UNDER_TEST) + 2, (
         f"loca tem {len(handles)} handles: o rótulo de item vem do jogo em runtime, "
         "só os das categorias ficam no .xml")
 
