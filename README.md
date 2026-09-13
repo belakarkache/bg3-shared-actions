@@ -6,7 +6,7 @@ Use any party member's potions, scrolls, throwables and shovel straight from
 your Action Bar — no more passing items around mid-fight. Works with modded items too: the
 list is discovered from your own installation every time you load a save.
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue) ![BG3](https://img.shields.io/badge/BG3-Patch%208-green)
+[![Version](https://img.shields.io/github/v/release/belakarkache/bg3-shared-actions?color=blue&label=version)](https://github.com/belakarkache/bg3-shared-actions/releases/latest) ![BG3](https://img.shields.io/badge/BG3-Patch%208-green)
 
 ---
 
