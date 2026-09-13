@@ -10,6 +10,5 @@ if [[ -z "${BG3_DATA:-}" && -f "$WORKSPACE_ENV" ]]; then
            DIVINE="$DIVINE" TEXCONV="$TEXCONV"
 fi
 
-python3 tools/collect.py
 python3 tools/generate_stats.py
 python3 tests/test_generate.py

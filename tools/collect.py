@@ -10,15 +10,10 @@ GAMEDATA = Path(os.environ.get("BG3_DATA", "gamedata"))
 
 STATS_FILES = sorted(GAMEDATA.glob("Public/*/Stats/Generated/Data/Object.txt"))
 SPELL_FILES = sorted(GAMEDATA.glob("Public/*/Stats/Generated/Data/Spell_*.txt"))
-STATUS_FILES = sorted(GAMEDATA.glob("Public/*/Stats/Generated/Data/Status_*.txt"))
 TEMPLATE_FILES = sorted(GAMEDATA.glob("Public/*/RootTemplates/_merged.lsx"))
 
 USABLE_ITEM_TYPES = {"Potion": "potions", "Scroll": "scrolls"}
 MAX_INHERITANCE_DEPTH = 12
-
-EFFECT_FIELDS = ["Description", "DescriptionParams", "ExtraDescription",
-                 "ExtraDescriptionParams", "TooltipDamageList", "TooltipAttackSave",
-                 "TooltipStatusApply", "TooltipOnSave"]
 
 DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
 USING_PATTERN = re.compile(r'^using "([^"]+)"', re.M)
@@ -75,16 +70,6 @@ def item_spell(spells, use_actions):
     return name
 
 
-def resolve_effect(spells, statuses, use_actions):
-    for spell, status in use_actions:
-        entries, name = (spells, spell) if spell else (statuses, status)
-        if not resolve_stat_field(entries, name, "Description"):
-            continue
-        return {field: value for field in EFFECT_FIELDS
-                if (value := resolve_stat_field(entries, name, field))}
-    return {}
-
-
 def parse_root_templates(paths):
     templates = {}
     for path in paths:
@@ -102,9 +87,6 @@ def parse_root_templates(paths):
             record = {
                 "name": attributes.get("Name"),
                 "icon": attributes.get("Icon"),
-                "displayname": attributes.get("DisplayName"),
-                "description": attributes.get("Description"),
-                "stats": attributes.get("Stats"),
                 "parent": attributes.get("ParentTemplateId"),
                 "use_actions": parse_use_actions(node),
             }
@@ -141,9 +123,9 @@ def main():
     if not STATS_FILES:
         raise SystemExit(f"sem dados do jogo em {GAMEDATA} — aponte BG3_DATA para os .pak extraídos")
 
+
     entries = parse_stat_entries(STATS_FILES)
     spells = parse_stat_entries(SPELL_FILES)
-    statuses = parse_stat_entries(STATUS_FILES)
     templates = parse_root_templates(TEMPLATE_FILES)
     print(f"stats: {len(entries)} entradas | templates: {len(templates)}", file=sys.stderr)
 
@@ -171,17 +153,10 @@ def main():
 
         catalog[category].append({
             "stat": name,
-            "template": guid,
-            "template_name": templates[guid]["name"],
             "family": base_family(templates, guid),
             "icon": resolve_template_field(templates, guid, "icon"),
-            "displayname": resolve_template_field(templates, guid, "displayname"),
-            "description": resolve_template_field(templates, guid, "description") or "",
-            "effect": resolve_effect(spells, statuses, use_actions),
             "spell": spell,
-            "spell_type": (resolve_stat_field(spells, spell, "SpellType") or "") if spell else "",
             "rarity": resolve_stat_field(entries, name, "Rarity") or "",
-            "use_costs": use_costs,
         })
 
     for category in catalog:

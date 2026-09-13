@@ -4,6 +4,8 @@ local TemplateToSpell = Catalog.TemplateToSpell
 local SpellToTemplate = Catalog.SpellToTemplate
 local SpellContainer = Catalog.SpellContainer
 local Containers = Catalog.Containers
+local Labels = Catalog.Labels
+local LegacySpells = Catalog.LegacySpells
 local RemovesItemOnCast = Catalog.RemovesItemOnCast
 
 local POLL_TRIES, POLL_STEP_MS = 12, 250
@@ -86,9 +88,18 @@ local function rebuildAllContainers()
     end
 end
 
+local function labelPayload(counts)
+    local payload = {}
+    for spell, count in pairs(counts) do
+        local handles = Labels[spell]
+        if handles then payload[spell] = { count, handles[1], handles[2] } end
+    end
+    return payload
+end
+
 local function pushLabels(changed)
     if next(changed) == nil then return end
-    channel:Broadcast(changed)
+    channel:Broadcast(labelPayload(changed))
 end
 
 channel:SetRequestHandler(function()
@@ -96,7 +107,7 @@ channel:SetRequestHandler(function()
     for spell, count in pairs(partyCountBySpell) do
         if count > 0 then snapshot[spell] = count end
     end
-    return snapshot
+    return labelPayload(snapshot)
 end)
 
 local function availableSpells()
@@ -120,6 +131,17 @@ local function setupCharacter(character, available)
             Osi.RemoveSpell(character, spell, 0)
         end
     end
+    if not alreadyReconciled then
+        local retired = 0
+        for _, spell in ipairs(LegacySpells) do
+            if Osi.HasSpell(character, spell) == 1 then
+                Osi.RemoveSpell(character, spell, 0)
+                retired = retired + 1
+            end
+        end
+        if retired > 0 then log("magias de build antigo removidas:", retired, character) end
+    end
+
     reconciledWithSave[character] = true
 end
 
