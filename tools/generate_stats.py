@@ -52,46 +52,19 @@ CATEGORIES = [
         "families": {"BASE_BOOK_Scroll_Magic"},
         "inherits_item_spell": True,
     },
-    {
-        "key": "throwables",
-        "spell": "SA_ThrowItem",
-        "prefix": "SA_Throw_",
-        "use_types": {"Potion", "Grenade", "Throwable"},
-        "label": "Throw Item",
-        "label_handle": "h366930b4g0007g4000g9000g366930b40007",
-        "desc_handle": "h366930b4g0008g4000g9000g366930b40008",
-        "desc": "Throw an item carried by anyone in the party.",
-        "label_ptbr": "Arremessar",
-        "desc_ptbr": "Arremessa um item carregado por qualquer membro do grupo.",
-        "icon": "SharedActions_Throw" if CUSTOM_ICON_ENABLED else "Action_Throw",
-        "use_costs": "ActionPoint:1",
-        "families": set(),
-        "inherits_projectile_spell": True,
-        "force_use_costs": True,
-        "overrides": {
-            "TargetRadius": "ThrownObjectRange",
-            "TargetConditions": "not Self()",
-            "SpellFlags": ["IsHarmful", "RangeIgnoreVerticalThreshold",
-                           "HasHighGroundRangeExtension", "IgnoreSilence", "IgnoreVisionBlock"],
-        },
-    },
 ]
 
-ENABLED_CATEGORIES = {"potions", "scrolls", "throwables"}
+ENABLED_CATEGORIES = {"potions", "scrolls"}
 
-DIG = {
-    "spell": "SA_Dig",
-    "vanilla_spell": "Target_Dig",
-    "status": "HAS_SHOVEL",
-    "tag": "SHOVEL_e2db698a-0705-43f4-9674-06fff1fd1e67",
-    "label": "Dig",
-    "label_handle": "h366930b4g0005g4000g9000g366930b40005",
-    "desc_handle": "h366930b4g0006g4000g9000g366930b40006",
-    "desc": "Dig with a shovel carried by anyone in the party.",
-    "label_ptbr": "Cavar",
-    "desc_ptbr": "Cava com uma pá carregada por qualquer membro do grupo.",
-    "icon": "SharedActions_Dig" if CUSTOM_ICON_ENABLED else "Item_TOOL_GEN_Shovel_A",
-}
+THROW_PANEL_SPELL = "SA_OpenThrowPanel"
+NATIVE_THROW_ENTRY = "Throw_Throw"
+THROW_PANEL_LABEL_HANDLE = "h366930b4g0007g4000g9000g366930b40007"
+THROW_PANEL_DESC_HANDLE = "h366930b4g0008g4000g9000g366930b40008"
+THROW_PANEL_ICON = "SharedActions_Throw" if CUSTOM_ICON_ENABLED else "Action_Throw"
+THROW_PANEL_LABEL = "Throw"
+THROW_PANEL_DESC = "Open a panel with every throwable item the party carries."
+THROW_PANEL_LABEL_PTBR = "Arremessar"
+THROW_PANEL_DESC_PTBR = "Abre um painel com os itens arremessáveis que a party carrega."
 
 BASE_ENTRY = "SA_Base"
 BASE_SPELL_ANIMATION = ("03496c4a-49e0-4132-b585-3e5ecd1ad8e5,,;,,;"
@@ -101,7 +74,7 @@ BASE_SPELL_ANIMATION = ("03496c4a-49e0-4132-b585-3e5ecd1ad8e5,,;,,;"
                         "32fb4d91-7fde-4b05-9144-ea87b9a4284a,,;,,")
 
 RUNTIME_TABLES = ["TemplateToSpell", "SpellToTemplate", "SpellContainer", "Labels",
-                  "LegacySpells"]
+                  "LegacySpells", "ScrollVariants", "VariantGroupOf"]
 
 MAP_KEY_PATTERN = re.compile(r'MapKey" type="FixedString" value="([^"]+)"')
 
@@ -114,18 +87,17 @@ def atlas_icon_keys():
 
 
 @functools.lru_cache(maxsize=1)
-def projectile_spells():
-    if not any(c.get("inherits_projectile_spell") for c in enabled_categories()):
-        return {}
+def throwable_templates():
     if not CATALOG_JSON.exists():
         raise SystemExit(f"{CATALOG_JSON} não existe: rode python3 tools/collect.py")
     catalog = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
-    spells = {item["template"]: item["spell"] for item in catalog.get("throwables", [])}
-    if not spells:
+    templates = sorted({item["template"] for item in catalog.get("throwables", [])})
+    if not templates:
         raise SystemExit(
-            "catalog.json sem throwables: o arremesso herda o spell que o item dispara "
-            "ao quebrar, e esse dado não é legível em runtime — rode python3 tools/collect.py")
-    return spells
+            "catalog.json sem throwables: o painel de arremesso precisa saber quais itens têm "
+            "efeito ao quebrar (ProjectileSpell no nó Scripts, ilegível em runtime) — "
+            "rode python3 tools/collect.py")
+    return templates
 
 
 def enabled_categories():
@@ -140,13 +112,13 @@ def category_items(category, catalog):
     items = catalog.get(category["key"], [])
     if category["families"]:
         items = [i for i in items if i["family"] in category["families"]]
-    if category.get("inherits_item_spell") or category.get("inherits_projectile_spell"):
+    if category.get("inherits_item_spell"):
         items = [i for i in items if i["spell"]]
     return items
 
 
 def removes_item_on_cast(category):
-    return bool(category.get("inherits_item_spell") or category.get("inherits_projectile_spell"))
+    return bool(category.get("inherits_item_spell"))
 
 
 def lua_flag(category, field):
@@ -164,6 +136,7 @@ def emit_base_entry():
         f'new entry "{BASE_ENTRY}"',
         'type "SpellData"',
         'data "SpellType" "Shout"',
+        'data "Autocast" "Yes"',
         'data "Level" "0"',
         'data "SpellSchool" "None"',
         'data "TargetConditions" "Self()"',
@@ -192,32 +165,21 @@ def emit_container(category):
     ])
 
 
-def emit_dig_entry():
+def emit_open_panel_entry():
     return "\n".join([
-        f'new entry "{DIG["spell"]}"',
+        f'new entry "{THROW_PANEL_SPELL}"',
         'type "SpellData"',
-        f'using "{DIG["vanilla_spell"]}"',
-        f'data "Icon" "{DIG["icon"]}"',
-        f'data "DisplayName" "{DIG["label_handle"]};1"',
-        f'data "Description" "{DIG["desc_handle"]};1"',
-        "",
-    ])
-
-
-def emit_dig_lua():
-    return "\n".join([
-        "Catalog.Dig = {",
-        f'    spell = "{DIG["spell"]}",',
-        f'    vanillaSpell = "{DIG["vanilla_spell"]}",',
-        f'    status = "{DIG["status"]}",',
-        f'    tag = "{DIG["tag"]}",',
-        "}",
+        f'using "{NATIVE_THROW_ENTRY}"',
+        f'data "Icon" "{THROW_PANEL_ICON}"',
+        f'data "DisplayName" "{THROW_PANEL_LABEL_HANDLE};1"',
+        f'data "Description" "{THROW_PANEL_DESC_HANDLE};1"',
         "",
     ])
 
 
 def emit_catalog_lua():
-    lines = ["Catalog = {}", "", f'Catalog.BaseEntry = "{BASE_ENTRY}"', "",
+    lines = ["Catalog = {}", "", f'Catalog.BaseEntry = "{BASE_ENTRY}"',
+             f'Catalog.ThrowPanelSpell = "{THROW_PANEL_SPELL}"', "",
              "Catalog.Containers = {"]
     lines += [f'    "{c["spell"]}",' for c in enabled_categories()]
 
@@ -232,8 +194,6 @@ def emit_catalog_lua():
             f'        container = "{category["spell"]}",',
             f'        prefix = "{category["prefix"]}",',
             f'        inheritsItemSpell = {lua_flag(category, "inherits_item_spell")},',
-            f'        inheritsProjectileSpell = '
-            f'{lua_flag(category, "inherits_projectile_spell")},',
             "        useTypes = {",
         ]
         lines += [f'            ["{use_type}"] = true,'
@@ -251,12 +211,12 @@ def emit_catalog_lua():
     lines += ["}", "", "Catalog.IconKeys = {"]
     lines += [f'    ["{key}"] = true,' for key in sorted(atlas_icon_keys())]
 
-    lines += ["}", "", "Catalog.ProjectileSpells = {"]
-    lines += [f'    ["{guid}"] = "{spell}",' for guid, spell in sorted(projectile_spells().items())]
+    lines += ["}", "", "Catalog.ThrowableTemplates = {"]
+    lines += [f'    ["{guid}"] = true,' for guid in throwable_templates()]
 
     lines += ["}", ""]
     lines += [f"Catalog.{table} = {{}}" for table in RUNTIME_TABLES]
-    lines += ["", emit_dig_lua()]
+    lines += [""]
     return "\n".join(lines)
 
 
@@ -279,19 +239,20 @@ def main():
                 f'{category[desc_key]}</content>')
         print(f'{category["spell"]}: container vazio, preenchido em runtime')
 
-    for lang, (label_key, desc_key) in LANGUAGES.items():
+    entries.append(emit_open_panel_entry())
+    for lang, (label, desc) in (
+        ("English", (THROW_PANEL_LABEL, THROW_PANEL_DESC)),
+        ("BrazilianPortuguese", (THROW_PANEL_LABEL_PTBR, THROW_PANEL_DESC_PTBR)),
+    ):
         localization[lang].append(
-            f'\t<content contentuid="{DIG["label_handle"]}" version="1">'
-            f'{DIG[label_key]}</content>')
+            f'\t<content contentuid="{THROW_PANEL_LABEL_HANDLE}" version="1">{label}</content>')
         localization[lang].append(
-            f'\t<content contentuid="{DIG["desc_handle"]}" version="1">'
-            f'{DIG[desc_key]}</content>')
+            f'\t<content contentuid="{THROW_PANEL_DESC_HANDLE}" version="1">{desc}</content>')
+    print(f"{THROW_PANEL_SPELL}: abre o painel IMGUI, sem sublista")
 
     for stale in STATS_DIR.glob("Spell_*.txt"):
         stale.unlink()
     (STATS_DIR / "Spell_Shout.txt").write_text("\n".join(entries), encoding="utf-8")
-    (STATS_DIR / "Spell_Target.txt").write_text(emit_dig_entry(), encoding="utf-8")
-    print(f'{DIG["spell"]}: herda {DIG["vanilla_spell"]}, concedida por {DIG["status"]}')
 
     for lang, lines in localization.items():
         directory = LOCALIZATION_ROOT / lang
@@ -301,7 +262,7 @@ def main():
 
     (LUA_DIR / "Catalog.lua").write_text(emit_catalog_lua(), encoding="utf-8")
     print(f"atlas: {len(atlas_icon_keys())} chaves de icone "
-          f"| arremesso: {len(projectile_spells())} templates com ProjectileSpell "
+          f"| arremesso: {len(throwable_templates())} templates elegiveis (painel IMGUI) "
           f"| sub-spells: criados em runtime")
 
 

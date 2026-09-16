@@ -7,21 +7,22 @@ local Containers = Catalog.Containers
 local Labels = Catalog.Labels
 local LegacySpells = Catalog.LegacySpells
 local RemovesItemOnCast = Catalog.RemovesItemOnCast
-local Dig = Catalog.Dig
+local ScrollVariants = Catalog.ScrollVariants
+local VariantGroupOf = Catalog.VariantGroupOf
 
 local POLL_TRIES, POLL_STEP_MS = 12, 250
 local USE_RECONCILE_MS = 10000
+local LEGACY_STATUSES = { "HAS_SHOVEL" }
 
 local channel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_Labels")
+local variantMenuChannel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_VariantMenu")
 
 local grantedSpellsByCharacter = {}
 local reconciledWithSave = {}
 local partyCountBySpell = {}
 local appliedContainerSpells = {}
 local selfTriggeredUseByTemplate = {}
-local digGrantedByCharacter = {}
-local shovelInParty = false
-local digTargetByCaster = {}
+local swappedMenu = nil
 
 local function log(...)
     print("[SharedActions]", ...)
@@ -35,34 +36,20 @@ local function partyMembers()
     return members
 end
 
-local function carriesShovel(character)
-    local shovel = Osi.GetItemByTagInInventory(Dig.tag, character)
-    return shovel ~= nil and shovel ~= ""
-end
-
-local function grantDig(character)
-    if Osi.HasActiveStatus(character, Dig.status) == 0 then
-        Osi.ApplyStatus(character, Dig.status, -1.0, 1, character)
-    end
-    if digGrantedByCharacter[character] then return end
-    Osi.AddSpell(character, Dig.spell, 0, 0)
-    digGrantedByCharacter[character] = true
-end
-
-local function revokeDig(character, carries)
-    if not digGrantedByCharacter[character] then return end
-    digGrantedByCharacter[character] = nil
-    Osi.RemoveSpell(character, Dig.spell, 0)
-    if not carries then Osi.RemoveStatus(character, Dig.status) end
-end
-
 local function countInParty(template, queryAnchor)
     return Osi.TemplateIsInPartyInventory(template, queryAnchor, 0) or 0
+end
+
+local function isHiddenFromMenu(spell)
+    local group = VariantGroupOf[spell]
+    if not swappedMenu then return group ~= nil end
+    return SpellContainer[spell] == swappedMenu.container and group ~= swappedMenu.picker
 end
 
 local function grantSpell(character, spell)
     local granted = grantedSpellsByCharacter[character]
     if not granted or granted[spell] then return end
+    if isHiddenFromMenu(spell) then return end
     Osi.AddSpell(character, spell, 0, 0)
     granted[spell] = true
 end
@@ -98,9 +85,10 @@ local function writeContainerSpells(container, spells)
 end
 
 local function rebuildContainer(container)
+    if swappedMenu and swappedMenu.container == container then return end
     local spells = {}
     for spell, count in pairs(partyCountBySpell) do
-        if count > 0 and SpellContainer[spell] == container then
+        if count > 0 and SpellContainer[spell] == container and not isHiddenFromMenu(spell) then
             spells[#spells + 1] = spell
         end
     end
@@ -117,7 +105,7 @@ local function labelPayload(counts)
     local payload = {}
     for spell, count in pairs(counts) do
         local handles = Labels[spell]
-        if handles then payload[spell] = { count, handles[1], handles[2] } end
+        if handles then payload[spell] = { count, handles[1], handles[2], handles[3] } end
     end
     return payload
 end
@@ -138,7 +126,9 @@ end)
 local function availableSpells()
     local available = {}
     for spell, count in pairs(partyCountBySpell) do
-        if count > 0 then available[spell] = true end
+        if count > 0 and not isHiddenFromMenu(spell) then
+            available[spell] = true
+        end
     end
     return available
 end
@@ -165,32 +155,15 @@ local function setupCharacter(character, available)
             end
         end
         if retired > 0 then log("magias de build antigo removidas:", retired, character) end
-    end
 
-    reconciledWithSave[character] = true
-end
-
-local function refreshDig(members)
-    members = members or partyMembers()
-    if #members == 0 then return end
-
-    local carriers = {}
-    local hadShovel = shovelInParty
-    shovelInParty = false
-    for _, character in ipairs(members) do
-        carriers[character] = carriesShovel(character)
-        if carriers[character] then shovelInParty = true end
-    end
-
-    for _, character in ipairs(members) do
-        if shovelInParty then
-            grantDig(character)
-        else
-            revokeDig(character, carriers[character])
+        for _, status in ipairs(LEGACY_STATUSES) do
+            if Osi.HasActiveStatus(character, status) == 1 then
+                Osi.RemoveStatus(character, status)
+            end
         end
     end
 
-    if hadShovel ~= shovelInParty then log("pa na party:", shovelInParty) end
+    reconciledWithSave[character] = true
 end
 
 local function resync()
@@ -216,7 +189,6 @@ local function resync()
 
     rebuildAllContainers()
     pushLabels(changed)
-    refreshDig(members)
 end
 
 local function refreshTemplate(template)
@@ -259,7 +231,51 @@ local function pollUntilCountChanges(template, triesLeft)
     end)
 end
 
+local function showVariantsInMenu(picker)
+    local container = SpellContainer[picker]
+    local leaves = ScrollVariants[picker]
+    swappedMenu = { picker = picker, container = container }
+
+    writeContainerSpells(container, { table.unpack(leaves) })
+    for _, character in ipairs(partyMembers()) do
+        for spell in pairs(grantedSpellsByCharacter[character] or {}) do
+            if isHiddenFromMenu(spell) then revokeSpell(character, spell) end
+        end
+        for _, leaf in ipairs(leaves) do
+            grantSpell(character, leaf)
+        end
+    end
+end
+
+local function restoreMenu()
+    if not swappedMenu then return end
+    local container = swappedMenu.container
+    swappedMenu = nil
+    rebuildContainer(container)
+    resync()
+end
+
+local function isLeafOfSwappedMenu(spell)
+    return swappedMenu ~= nil and VariantGroupOf[spell] == swappedMenu.picker
+end
+
+variantMenuChannel:SetHandler(function(payload)
+    if type(payload) == "table" and payload.restore then restoreMenu() end
+end)
+
+Ext.Entity.OnCreateDeferred("SpellCastState", function(entity)
+    local state = entity.SpellCastState
+    local prototype = state and state.SpellId and state.SpellId.Prototype
+    if prototype and ScrollVariants[prototype] then showVariantsInMenu(prototype) end
+end)
+
+Ext.Osiris.RegisterListener("CastSpellFailed", 5, "after", function(_, spell)
+    if isLeafOfSwappedMenu(spell) then restoreMenu() end
+end)
+
 Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
+    if isLeafOfSwappedMenu(spell) then restoreMenu() end
+    if ScrollVariants[spell] then return end
     local template = SpellToTemplate[spell]
     if not template then return end
 
@@ -296,25 +312,12 @@ Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
     end)
 end)
 
-Ext.Osiris.RegisterListener("UsingSpellOnTarget", 6, "after", function(caster, target, spell)
-    if spell == Dig.spell then digTargetByCaster[caster] = target end
-end)
-
-Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
-    local target = digTargetByCaster[caster]
-    if spell ~= Dig.spell or not target then return end
-    digTargetByCaster[caster] = nil
-    Osi.UseSpell(caster, Dig.vanillaSpell, target)
-end)
-
-Ext.Osiris.RegisterListener("TemplateAddedTo", 4, "after", function(template, item)
+Ext.Osiris.RegisterListener("TemplateAddedTo", 4, "after", function(template)
     refreshTemplate(string.lower(template))
-    if not shovelInParty and item and Osi.IsTagged(item, Dig.tag) == 1 then refreshDig() end
 end)
 
 Ext.Osiris.RegisterListener("TemplateRemovedFrom", 3, "after", function(template)
     refreshTemplate(string.lower(template))
-    if shovelInParty then refreshDig() end
 end)
 
 Ext.Osiris.RegisterListener("TemplateUseFinished", 4, "after", function(_, template)
@@ -333,12 +336,11 @@ end)
 Ext.Osiris.RegisterListener("CharacterLeftParty", 1, "after", function(character)
     grantedSpellsByCharacter[character] = nil
     reconciledWithSave[character] = nil
-    revokeDig(character, carriesShovel(character))
 end)
 
 Ext.Osiris.RegisterListener("LevelGameplayStarted", 2, "after", function()
     grantedSpellsByCharacter, partyCountBySpell = {}, {}
     reconciledWithSave, appliedContainerSpells = {}, {}
-    digGrantedByCharacter, shovelInParty = {}, false
+    swappedMenu = nil
     resync()
 end)

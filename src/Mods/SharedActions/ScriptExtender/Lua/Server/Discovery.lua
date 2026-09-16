@@ -1,7 +1,7 @@
 local Catalog = Catalog
 
 local MAX_FAMILY_DEPTH = 12
-local RETIRED_SPELLS = { "SA_PotionProbe_OBJ_Potion_Healing" }
+local RETIRED_SPELLS = { "SA_PotionProbe_OBJ_Potion_Healing", "SA_Dig", "SA_ThrowItem" }
 local AREA_FIELDS = { "AreaRadius", "ExplodeRadius" }
 local HANDLE_FORMAT = "h%08xg%04xg%04xg%04xg%012x"
 
@@ -35,11 +35,9 @@ local function baseFamily(templates, id)
     return nil
 end
 
-local function castableSpell(name)
+local function existingSpell(name)
     if not name or name == "" then return nil end
-    local stat = Ext.Stats.Get(name, nil, false)
-    if not stat then return nil end
-    if stat.ContainerSpells and stat.ContainerSpells ~= "" then return nil end
+    if not Ext.Stats.Get(name, nil, false) then return nil end
     return name
 end
 
@@ -50,14 +48,21 @@ local function itemSpellOf(template)
             found = action.Spell
         end
     end
-    return castableSpell(found)
+    return existingSpell(found)
+end
+
+local function containerVariantsOf(name)
+    local stat = Ext.Stats.Get(name, nil, false)
+    if not stat or not stat.ContainerSpells or stat.ContainerSpells == "" then return nil end
+    local variants = {}
+    for variant in stat.ContainerSpells:gmatch("[^;]+") do
+        variants[#variants + 1] = variant
+    end
+    return variants
 end
 
 local function parentSpellOf(category, stat, template)
     if category.inheritsItemSpell then return itemSpellOf(template) end
-    if category.inheritsProjectileSpell then
-        return castableSpell(Catalog.ProjectileSpells[stat.RootTemplate])
-    end
     return Catalog.BaseEntry
 end
 
@@ -78,7 +83,7 @@ local function spellNameFor(category, statName)
     return category.prefix .. statName .. "_" .. #statName
 end
 
-local function createSubSpell(spell, category, statName, stat, template, parent, handle)
+local function createSubSpell(spell, category, statName, stat, template, parent, handle, icon)
     if Ext.Stats.Get(spell, nil, false) then return spell end
 
     local created = Ext.Stats.Create(spell, "SpellData", parent)
@@ -89,7 +94,7 @@ local function createSubSpell(spell, category, statName, stat, template, parent,
 
     created.SpellContainerID = category.container
     created.ContainerSpells = ""
-    created.Icon = iconFor(statName, template)
+    created.Icon = (icon and icon ~= "") and icon or iconFor(statName, template)
     created.UseCosts = category.forcedUseCosts or stat.UseCosts
     created.DisplayName = handle .. ";1"
 
@@ -126,16 +131,7 @@ local function createSubSpell(spell, category, statName, stat, template, parent,
     return spell
 end
 
-local function register(category, statName, stat, template, index)
-    local parent = parentSpellOf(category, stat, template)
-    if not parent then return false end
-
-    local handle = handleFor(index)
-    local spell = spellNameFor(category, statName)
-    if not createSubSpell(spell, category, statName, stat, template, parent, handle) then
-        return false
-    end
-
+local function linkToTemplate(category, template, spell)
     local templateKey = template.Name .. "_" .. template.Id
     local key = string.lower(templateKey)
     local sharing = Catalog.TemplateToSpell[key] or {}
@@ -143,9 +139,69 @@ local function register(category, statName, stat, template, index)
     Catalog.TemplateToSpell[key] = sharing
     Catalog.SpellToTemplate[spell] = templateKey
     Catalog.SpellContainer[spell] = category.container
-    Catalog.Labels[spell] = { handle, translatedHandle(template.DisplayName) or "" }
-    Catalog.LegacySpells[#Catalog.LegacySpells + 1] = category.prefix .. statName
-    return true
+end
+
+local function registerSingle(category, statName, stat, template, parent, nextIndex)
+    local name = spellNameFor(category, statName)
+    local handle = handleFor(nextIndex())
+    if not createSubSpell(name, category, statName, stat, template, parent, handle) then
+        return 0
+    end
+
+    linkToTemplate(category, template, name)
+    Catalog.Labels[name] = { handle, translatedHandle(template.DisplayName) or "" }
+    return 1
+end
+
+local function registerWithVariants(category, statName, stat, template, variants, nextIndex)
+    local pickerHandle = handleFor(nextIndex())
+    local picker = spellNameFor(category, statName)
+
+    local leaves = {}
+    for variantIndex, variantSpell in ipairs(variants) do
+        if Ext.Stats.Get(variantSpell, nil, false) then
+            local leafName = string.format("%s_v%02d", picker, variantIndex)
+            local leafHandle = handleFor(nextIndex())
+            local variantStat = Ext.Stats.Get(variantSpell, nil, false)
+            if createSubSpell(leafName, category, statName, stat, template, variantSpell, leafHandle,
+                              variantStat.Icon) then
+                leaves[#leaves + 1] = leafName
+                Catalog.VariantGroupOf[leafName] = picker
+                Catalog.Labels[leafName] = { leafHandle, translatedHandle(template.DisplayName) or "",
+                                             translatedHandle(variantStat.DisplayName) or "" }
+                linkToTemplate(category, template, leafName)
+            end
+        end
+    end
+
+    if #leaves == 0 then return 0 end
+
+    if not createSubSpell(picker, category, statName, stat, template, Catalog.BaseEntry, pickerHandle) then
+        return 0
+    end
+    local pickerStat = Ext.Stats.Get(picker, nil, false)
+    pickerStat.UseCosts = ""
+    pickerStat:Sync()
+
+    Catalog.ScrollVariants[picker] = leaves
+    Catalog.Labels[picker] = { pickerHandle, translatedHandle(template.DisplayName) or "" }
+    linkToTemplate(category, template, picker)
+    return 1 + #leaves
+end
+
+local function register(category, statName, stat, template, nextIndex)
+    local parent = parentSpellOf(category, stat, template)
+    if not parent then return 0 end
+
+    local variants = containerVariantsOf(parent)
+    local registered = variants
+        and registerWithVariants(category, statName, stat, template, variants, nextIndex)
+        or registerSingle(category, statName, stat, template, parent, nextIndex)
+
+    if registered > 0 then
+        Catalog.LegacySpells[#Catalog.LegacySpells + 1] = category.prefix .. statName
+    end
+    return registered
 end
 
 local function accepts(category, stat, family)
@@ -182,11 +238,15 @@ local function discover()
                             unknownFamilies[family] = (unknownFamilies[family] or 0) + 1
                         end
                     else
-                        index = index + 1
-                        if register(category, statName, stat, template, index) then
-                            registered = registered + 1
+                        local function nextIndex()
+                            index = index + 1
+                            return index
+                        end
+                        local count = register(category, statName, stat, template, nextIndex)
+                        if count > 0 then
+                            registered = registered + count
                             perContainer[category.container] =
-                                (perContainer[category.container] or 0) + 1
+                                (perContainer[category.container] or 0) + count
                         else
                             skipped.sem_magia = skipped.sem_magia + 1
                             missingParent[category.container] =
