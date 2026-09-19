@@ -2,6 +2,8 @@ local Catalog = Catalog
 
 local HANDLE_FORMAT = "h%08xg%04xg%04xg%04xg%012x"
 local HANDLE_OFFSET = 500000
+local SPELL_PREFIX = "SA_Throwable_"
+local PROBE_SPELL_PREFIX = "SA_ThrowProbe_"
 local TRANSFER_POLL_MS = 100
 local TRANSFER_POLL_ATTEMPTS = 20
 local PREVIEW_TARGET_KIND = 5
@@ -10,20 +12,22 @@ local AIMING_TARGETING_STATE = 2
 local PREVIEW_INJECT_ATTEMPTS = 30
 local PREVIEW_QUEUE = "NetworkPreviewUpdateRequests"
 
-local channel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_ThrowPanel")
+local channel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_Throw")
 
 local itemInfo = {}
+local keyBySpell = {}
 local countByTemplate = {}
 local pendingThrow = {}
-local grantedPanelSpell = {}
+local grantedByCharacter = {}
+local appliedContainerSpells = nil
 local castRequestHookRegistered = false
 
 local function log(...)
     print("[SharedActions]", ...)
 end
 
-local function isPanelSpell(prototype)
-    return prototype == Catalog.ThrowPanelSpell
+local function isThrowSpell(prototype)
+    return prototype ~= nil and keyBySpell[prototype] ~= nil
 end
 
 local function safeRead(object, key)
@@ -50,7 +54,9 @@ end
 local function partyMembers()
     local members = {}
     for _, row in ipairs(Osi.DB_Players:Get(nil) or {}) do
-        members[#members + 1] = row[1]
+        if Osi.IsSummon(row[1]) ~= 1 then
+            members[#members + 1] = row[1]
+        end
     end
     return members
 end
@@ -67,6 +73,36 @@ local function translatedHandle(translatedString)
     return handle
 end
 
+local function spellNameFor(prefix, template)
+    return prefix .. template.Name .. "_" .. #template.Name
+end
+
+local function iconFor(template)
+    local key = "SA_Icon_" .. (template.Stats or "")
+    if Catalog.IconKeys[key] then return key end
+    return template.Icon
+end
+
+local function createItemSpell(template, handle)
+    local spell = spellNameFor(SPELL_PREFIX, template)
+    if keyBySpell[spell] then return log("ALERTA: nome de template repetido, item fora do arremesso:", template.Id) end
+    if Ext.Stats.Get(spell, nil, false) then return spell end
+
+    local stat = Ext.Stats.Create(spell, "SpellData", Catalog.ThrowBaseSpell)
+    if not stat then return log("ALERTA: Create falhou para", spell) end
+    stat.SpellContainerID = Catalog.ThrowContainer
+    stat.Icon = iconFor(template)
+    stat.DisplayName = handle .. ";1"
+    local projectileSpell = Catalog.ThrowableTemplates[template.Id]
+    if Tooltip.HasDescription(projectileSpell) then
+        Tooltip.CopySpellText(stat, projectileSpell)
+    else
+        Tooltip.ApplyItemText(stat, template)
+    end
+    stat:Sync()
+    return spell
+end
+
 local function discoverItems()
     local templates = Ext.Template.GetAllRootTemplates()
     if not templates then return log("ALERTA: GetAllRootTemplates devolveu nil") end
@@ -76,77 +112,127 @@ local function discoverItems()
         local template = templates[guid]
         if template then
             index = index + 1
-            local description = translatedHandle(template.TechnicalDescription)
-                or translatedHandle(template.Description)
-            local key = string.lower(template.Name .. "_" .. template.Id)
-            itemInfo[key] = {
-                originalKey = template.Name .. "_" .. template.Id,
-                handle = handleFor(index),
-                nameHandle = translatedHandle(template.DisplayName),
-                descHandle = description,
-                icon = template.Icon,
-            }
+            local handle = handleFor(index)
+            local spell = createItemSpell(template, handle)
+            if spell then
+                local key = string.lower(template.Name .. "_" .. template.Id)
+                keyBySpell[spell] = key
+                itemInfo[key] = {
+                    originalKey = template.Name .. "_" .. template.Id,
+                    spell = spell,
+                    handle = handle,
+                    nameHandle = translatedHandle(template.DisplayName),
+                }
+            end
+            Catalog.LegacySpells[#Catalog.LegacySpells + 1] = spellNameFor(PROBE_SPELL_PREFIX, template)
         end
     end
-
-    log("painel de arremesso:", index, "itens com metadados")
+    log("arremesso:", index, "itens com sub-spell")
 end
 
 local function countInParty(key, queryAnchor)
     return Osi.TemplateIsInPartyInventory(key, queryAnchor, 0) or 0
 end
 
-local function itemPayload()
+local function carries(key)
+    return (countByTemplate[key] or 0) > 0
+end
+
+local function labelPayload(keys)
     local payload = {}
-    for key, info in pairs(itemInfo) do
-        local count = countByTemplate[key] or 0
-        if count > 0 then
-            payload[key] = { count, info.handle, info.nameHandle or "", info.descHandle or "",
-                             info.icon or "" }
+    for key in pairs(keys) do
+        local info = itemInfo[key]
+        if info and carries(key) then
+            payload[info.spell] = { countByTemplate[key], info.handle, info.nameHandle or "" }
         end
     end
     return payload
 end
 
-local function pushSnapshot()
-    channel:Broadcast({ items = itemPayload() })
+local function pushLabels(keys)
+    local payload = labelPayload(keys)
+    if next(payload) then channel:Broadcast(payload) end
 end
 
-local function ensurePanelGranted(character)
-    if grantedPanelSpell[character] then return end
-    Osi.AddSpell(character, Catalog.ThrowPanelSpell, 0, 0)
-    grantedPanelSpell[character] = true
+local function setGranted(character, spell, wanted)
+    local granted = grantedByCharacter[character]
+    if wanted and not granted[spell] then
+        Osi.AddSpell(character, spell, 0, 0)
+        granted[spell] = true
+    elseif not wanted and granted[spell] then
+        Osi.RemoveSpell(character, spell, 0)
+        granted[spell] = nil
+    end
+end
+
+local function setupCharacter(character)
+    if grantedByCharacter[character] then return end
+    grantedByCharacter[character] = {}
+    Osi.AddSpell(character, Catalog.ThrowContainer, 0, 0)
+    for spell, key in pairs(keyBySpell) do
+        if carries(key) then
+            setGranted(character, spell, true)
+        elseif Osi.HasSpell(character, spell) == 1 then
+            Osi.RemoveSpell(character, spell, 0)
+        end
+    end
+end
+
+local function rebuildContainer()
+    local spells = {}
+    for key, info in pairs(itemInfo) do
+        if carries(key) then spells[#spells + 1] = info.spell end
+    end
+    table.sort(spells)
+    local joined = table.concat(spells, ";")
+    if joined == appliedContainerSpells then return end
+
+    local stat = Ext.Stats.Get(Catalog.ThrowContainer)
+    if not stat then return log("ALERTA: stat não encontrado:", Catalog.ThrowContainer) end
+    appliedContainerSpells = joined
+    stat.ContainerSpells = joined
+    stat:Sync()
 end
 
 local function resync()
     local members = partyMembers()
     if #members == 0 then return end
-    local queryAnchor = members[1]
 
-    for _, character in ipairs(members) do
-        ensurePanelGranted(character)
-    end
-
-    local changed = false
+    local changed = {}
     for key in pairs(itemInfo) do
-        local count = countInParty(key, queryAnchor)
+        local count = countInParty(key, members[1])
         if countByTemplate[key] ~= count then
             countByTemplate[key] = count
-            changed = true
+            changed[key] = true
         end
     end
-    if changed then pushSnapshot() end
+
+    for _, character in ipairs(members) do
+        setupCharacter(character)
+        for key in pairs(changed) do
+            setGranted(character, itemInfo[key].spell, carries(key))
+        end
+    end
+    rebuildContainer()
+    pushLabels(changed)
 end
 
 local function refreshTemplate(key)
-    if not itemInfo[key] then return end
+    local info = itemInfo[key]
+    if not info then return end
     local members = partyMembers()
     if #members == 0 then return end
+
     local count = countInParty(key, members[1])
-    if countByTemplate[key] ~= count then
-        countByTemplate[key] = count
-        pushSnapshot()
+    if countByTemplate[key] == count then return end
+    countByTemplate[key] = count
+
+    for _, character in ipairs(members) do
+        setupCharacter(character)
+        setGranted(character, info.spell, count > 0)
     end
+    rebuildContainer()
+    pushLabels({ [key] = true })
 end
 
 local function returnItem(casterUuid)
@@ -166,10 +252,10 @@ local function pendingItemEntity(casterUuid, pending)
     return Ext.Entity.Get(item), uuidOf(item)
 end
 
-local function panelCastOf(casterUuid)
+local function throwCastOf(casterUuid)
     for _, entity in ipairs(Ext.Entity.GetAllEntitiesWithComponent("SpellCastState")) do
         local state = entity.SpellCastState
-        if isPanelSpell(state.SpellId.Prototype) and uuidOf(state.Caster) == casterUuid then
+        if isThrowSpell(state.SpellId.Prototype) and uuidOf(state.Caster) == casterUuid then
             return entity
         end
     end
@@ -230,7 +316,7 @@ local function retargetQueuedPreview(previews, castGuidText, itemEntity)
 end
 
 local function injectItemPreview(system, casterUuid, pending)
-    local castEntity = panelCastOf(casterUuid)
+    local castEntity = throwCastOf(casterUuid)
     if not castEntity then return end
     local itemEntity, itemUuid = pendingItemEntity(casterUuid, pending)
     if not itemEntity then return end
@@ -285,9 +371,9 @@ local function waitForItemInInventory(casterUuid, templateKey, attemptsLeft)
     end)
 end
 
-local function prepareThrow(caster, key)
-    local info = itemInfo[key]
-    if not info then return log("ALERTA: item desconhecido no pedido de arremesso:", key) end
+local function prepareThrow(caster, spell)
+    local info = itemInfo[keyBySpell[spell]]
+    if not info then return log("ALERTA: spell desconhecida no pedido de arremesso:", spell) end
     local casterUuid = uuidOf(caster)
     returnItem(casterUuid)
     ensureCastRequestHook()
@@ -296,7 +382,7 @@ local function prepareThrow(caster, key)
     local ownItem = Osi.GetItemByTemplateInInventory(info.originalKey, casterUuid)
     if not ownItem then
         local ownerItem = Osi.GetItemByTemplateInPartyInventory(info.originalKey, casterUuid)
-        if not ownerItem then return log("ALERTA: item nao achado na party:", key) end
+        if not ownerItem then return log("ALERTA: item nao achado na party:", spell) end
         originalOwner = Osi.GetInventoryOwner(ownerItem)
         Osi.ToInventory(ownerItem, casterUuid, 1, 0)
     end
@@ -306,22 +392,22 @@ local function prepareThrow(caster, key)
 end
 
 channel:SetRequestHandler(function()
-    return { items = itemPayload() }
+    return labelPayload(itemInfo)
 end)
 
 channel:SetHandler(function(payload)
-    if type(payload) ~= "table" or not payload.caster or not payload.template then return end
-    prepareThrow(payload.caster, payload.template)
+    if type(payload) ~= "table" or not payload.caster or not payload.spell then return end
+    prepareThrow(payload.caster, payload.spell)
 end)
 
 Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
-    if isPanelSpell(spell) then pendingThrow[uuidOf(caster)] = nil end
+    if isThrowSpell(spell) then pendingThrow[uuidOf(caster)] = nil end
 end)
 
 Ext.Entity.OnCreateDeferred("SpellCastState", function(entity)
     ensureCastRequestHook()
     local state = entity.SpellCastState
-    if not state or not isPanelSpell(state.SpellId.Prototype) then return end
+    if not state or not isThrowSpell(state.SpellId.Prototype) then return end
 
     local casterUuid = uuidOf(state.Caster)
     local pending = casterUuid and pendingThrow[casterUuid]
@@ -333,7 +419,7 @@ end)
 
 Ext.Entity.OnDestroy("SpellCastState", function(entity)
     local state = entity.SpellCastState
-    if not state or not isPanelSpell(state.SpellId.Prototype) then return end
+    if not state or not isThrowSpell(state.SpellId.Prototype) then return end
     local casterUuid = uuidOf(state.Caster)
     if casterUuid then returnItem(casterUuid) end
 end)
@@ -347,16 +433,19 @@ Ext.Osiris.RegisterListener("TemplateRemovedFrom", 3, "after", function(template
 end)
 
 Ext.Osiris.RegisterListener("CharacterJoinedParty", 1, "after", function(character)
+    if Osi.IsSummon(character) == 1 then return end
     resync()
-    ensurePanelGranted(character)
+    setupCharacter(character)
 end)
+
 Ext.Osiris.RegisterListener("CharacterLeftParty", 1, "after", function(character)
-    grantedPanelSpell[character] = nil
+    grantedByCharacter[character] = nil
     resync()
 end)
 
 Ext.Osiris.RegisterListener("LevelGameplayStarted", 2, "after", function()
-    countByTemplate, pendingThrow, grantedPanelSpell = {}, {}, {}
+    countByTemplate, pendingThrow, grantedByCharacter = {}, {}, {}
+    appliedContainerSpells = nil
     resync()
     ensureCastRequestHook()
 end)

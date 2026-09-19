@@ -31,7 +31,9 @@ end
 local function partyMembers()
     local members = {}
     for _, row in ipairs(Osi.DB_Players:Get(nil) or {}) do
-        members[#members + 1] = row[1]
+        if Osi.IsSummon(row[1]) ~= 1 then
+            members[#members + 1] = row[1]
+        end
     end
     return members
 end
@@ -327,6 +329,7 @@ Ext.Osiris.RegisterListener("TemplateUseFinished", 4, "after", function(_, templ
 end)
 
 Ext.Osiris.RegisterListener("CharacterJoinedParty", 1, "after", function(character)
+    if Osi.IsSummon(character) == 1 then return end
     resync()
     if not grantedSpellsByCharacter[character] then
         setupCharacter(character, availableSpells())

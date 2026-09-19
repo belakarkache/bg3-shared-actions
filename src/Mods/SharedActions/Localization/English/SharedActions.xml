@@ -5,5 +5,5 @@
 	<content contentuid="h366930b4g0002g4000g9000g366930b40002" version="1">Use Scroll</content>
 	<content contentuid="h366930b4g0004g4000g9000g366930b40004" version="1">Use a scroll carried by anyone in the party.</content>
 	<content contentuid="h366930b4g0007g4000g9000g366930b40007" version="1">Throw</content>
-	<content contentuid="h366930b4g0008g4000g9000g366930b40008" version="1">Open a panel with every throwable item the party carries.</content>
+	<content contentuid="h366930b4g0008g4000g9000g366930b40008" version="1">Throw an item carried by anyone in the party.</content>
 </contentList>

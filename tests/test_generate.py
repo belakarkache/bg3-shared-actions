@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parent.parent
 STATS_DIR = ROOT / "src/Public/SharedActions/Stats/Generated/Data"
 CATALOG_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Catalog.lua"
 DISCOVERY_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/Discovery.lua"
-THROW_PANEL_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/ThrowPanel.lua"
-CLIENT_THROW_PANEL_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Client/ThrowPanel.lua"
+THROW_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/Throw.lua"
+CLIENT_THROW_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Client/Throw.lua"
 LOCA_EN = ROOT / "src/Mods/SharedActions/Localization/English/SharedActions.xml"
 LOCA_PT = ROOT / "src/Mods/SharedActions/Localization/BrazilianPortuguese/SharedActions.xml"
 ATLAS_LSX = ROOT / "src/Public/SharedActions/GUI/SharedActions_Items.lsx"
@@ -28,9 +28,12 @@ CATEGORIES_UNDER_TEST = [
      "item"),
 ]
 
-THROW_PANEL_SPELL = "SA_OpenThrowPanel"
-THROW_PANEL_LABEL_HANDLE = "h366930b4g0007g4000g9000g366930b40007"
-THROW_PANEL_DESC_HANDLE = "h366930b4g0008g4000g9000g366930b40008"
+THROW_BASE_SPELL = "SA_ThrowBase"
+THROW_CONTAINER = "SA_ThrowItems"
+THROW_USE_COSTS = "ActionPoint:1"
+THROW_LABEL_HANDLE = "h366930b4g0007g4000g9000g366930b40007"
+THROW_DESC_HANDLE = "h366930b4g0008g4000g9000g366930b40008"
+RETIRED_THROW_SPELLS = ["SA_ThrowItem", "SA_OpenThrowPanel", "SA_ThrowProbe"]
 
 STATS_FILES = ["Spell_Shout.txt"]
 
@@ -50,12 +53,12 @@ DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
 USING_PATTERN = re.compile(r'^using "([^"]+)"', re.M)
 ICON_KEY_PATTERN = re.compile(r'\["(SA_Icon_[^"]+)"\] = true')
 SUB_SPELL_PATTERN = re.compile(r'\["(SA_(?:Potion|Scroll)_[^"]+)"\]')
-THROWABLE_TEMPLATE_PATTERN = re.compile(r'\["([0-9a-f-]{36})"\] = true')
+THROWABLE_TEMPLATE_PATTERN = re.compile(r'\["([0-9a-f-]{36})"\] = "[A-Za-z0-9_]*"')
 
 lua = CATALOG_LUA.read_text(encoding="utf-8")
 discovery = DISCOVERY_LUA.read_text(encoding="utf-8")
-throw_panel = THROW_PANEL_LUA.read_text(encoding="utf-8")
-client_throw_panel = CLIENT_THROW_PANEL_LUA.read_text(encoding="utf-8")
+throw = THROW_LUA.read_text(encoding="utf-8")
+client_throw = CLIENT_THROW_LUA.read_text(encoding="utf-8")
 loca_en = LOCA_EN.read_text(encoding="utf-8")
 loca_pt = LOCA_PT.read_text(encoding="utf-8")
 
@@ -118,46 +121,41 @@ def check_container(entries, container_name, use_costs, label_handle, desc_handl
         f"{container_name}: container não deve ter ImmediateCast")
 
 
-def check_throw_panel():
-    assert "Catalog.ThrowableTemplates" in throw_panel, (
-        "o painel de arremesso decide quem entra na lista pelo conjunto assado em "
-        "Catalog.ThrowableTemplates (o ProjectileSpell do item mora no nó Scripts do root "
-        "template, ilegível em runtime) — Server/ThrowPanel.lua tem de ler dessa tabela")
+def check_throw(entries):
+    assert "Catalog.ThrowableTemplates" in throw, (
+        "o arremesso decide quem entra na lista pelo conjunto assado em Catalog.ThrowableTemplates "
+        "(o que torna um item arremessável mora no root template, ilegível em runtime) — "
+        "Server/Throw.lua tem de ler dessa tabela")
     baked = THROWABLE_TEMPLATE_PATTERN.findall(lua.split("Catalog.ThrowableTemplates = {", 1)[1])
     assert len(baked) > 50, (
         f"Catalog.ThrowableTemplates tem {len(baked)} templates: sem esse conjunto nenhum item "
-        "entra no painel de arremesso — rode python3 tools/collect.py")
+        "entra no arremesso — rode python3 tools/collect.py da raiz do workspace")
 
-    assert '"SA_ThrowItem"' in discovery, (
-        "SA_ThrowItem (o container antigo) precisa continuar em RETIRED_SPELLS: quem já tinha "
-        "essa spell gravada no save fica com um identificador órfão sem a limpeza")
+    for spell in RETIRED_THROW_SPELLS:
+        assert f'"{spell}"' in discovery, (
+            f"{spell} é um desenho antigo do arremesso e precisa continuar em RETIRED_SPELLS: "
+            "quem já tinha essa spell gravada no save fica com um identificador órfão sem a limpeza")
 
-    block = lua.split(f'new entry "{THROW_PANEL_SPELL}"', 1)
-    assert len(block) == 1, f"{THROW_PANEL_SPELL} não pode estar em Catalog.lua (é gerado no .txt de stats, não no runtime)"
+    check_container(entries, THROW_CONTAINER, THROW_USE_COSTS, THROW_LABEL_HANDLE, THROW_DESC_HANDLE)
+    assert f'"{THROW_CONTAINER}",' not in lua, (
+        f"{THROW_CONTAINER} não entra em Catalog.Containers: rebuildAllContainers só conhece "
+        "poção e pergaminho e apagaria o ContainerSpells que Server/Throw.lua escreve")
 
-    assert f'"{THROW_PANEL_SPELL}",' not in lua, (
-        f"{THROW_PANEL_SPELL} abre o painel; não é um container e não entra em Catalog.Containers")
-
-
-def check_open_panel_entry(entries):
-    entry = entries[THROW_PANEL_SPELL]
-    assert entry["_using"] == "Throw_Throw", (
-        f"{THROW_PANEL_SPELL}: tem de herdar de Throw_Throw — é a mira nativa de arremesso que o "
-        "painel preenche com o item, e o custo de Ação vem daí")
-    assert "SpellFlags" not in entry, (
-        f"{THROW_PANEL_SPELL}: os SpellFlags vêm do Throw_Throw, com InventorySelection — é o que faz o "
+    base = entries[THROW_BASE_SPELL]
+    assert base["_using"] == "Throw_Throw", (
+        f"{THROW_BASE_SPELL}: tem de herdar de Throw_Throw — é a mira nativa de arremesso que o "
+        "servidor preenche com o item, e o custo de Ação vem daí")
+    assert "SpellFlags" not in base, (
+        f"{THROW_BASE_SPELL}: os SpellFlags vêm do Throw_Throw, com InventorySelection — é o que faz o "
         "servidor aceitar item de inventário como alvo do arremesso. Quem tira a flag é só o cliente, "
-        "em Client/ThrowPanel.lua (NOTES.md, P16f e sexta rodada)")
-    assert '~= "InventorySelection"' in client_throw_panel and "stat:Sync()" in client_throw_panel, (
-        "Client/ThrowPanel.lua tem de remover InventorySelection do stat do painel e dar Sync() local: "
-        "sem isso o botão abre o seletor do próprio inventário em vez da mira vazia")
-    assert entry["DisplayName"] == f"{THROW_PANEL_LABEL_HANDLE};1", (
-        f"{THROW_PANEL_SPELL}: DisplayName errado")
-    assert entry["Description"] == f"{THROW_PANEL_DESC_HANDLE};1", (
-        f"{THROW_PANEL_SPELL}: Description errada")
-    assert "ContainerSpells" not in entry, (
-        f"{THROW_PANEL_SPELL}: não é um spell-container, não precisa de ContainerSpells")
-    for handle in (THROW_PANEL_LABEL_HANDLE, THROW_PANEL_DESC_HANDLE):
+        "em Client/Throw.lua (NOTES.md, P16f e sexta rodada)")
+    assert 'STRIPPED_FLAG = "InventorySelection"' in client_throw and "stat:Sync()" in client_throw, (
+        "Client/Throw.lua tem de remover InventorySelection dos sub-spells e dar Sync() local: "
+        "sem isso o clique abre o seletor do próprio inventário em vez da mira vazia")
+    assert "Catalog.ThrowBaseSpell" in throw and "Catalog.ThrowContainer" in throw, (
+        "Server/Throw.lua cria os sub-spells herdando de Catalog.ThrowBaseSpell dentro de "
+        "Catalog.ThrowContainer")
+    for handle in (THROW_LABEL_HANDLE, THROW_DESC_HANDLE):
         assert f'contentuid="{handle}"' in loca_en, f"{handle}: sem texto em inglês"
         assert f'contentuid="{handle}"' in loca_pt, f"{handle}: sem texto em PT-BR"
 
@@ -216,8 +214,7 @@ def main():
     check_icon_atlases()
     check_runtime_tables()
     check_spell_names_never_collide()
-    check_throw_panel()
-    check_open_panel_entry(entries)
+    check_throw(entries)
 
     assert '"SA_Dig"' in discovery, (
         "SA_Dig foi descontinuado: precisa continuar em RETIRED_SPELLS para limpar o save "
@@ -239,9 +236,9 @@ def main():
     handles = re.findall(r'contentuid="([^"]+)"', loca_en)
     assert len(handles) == 2 * len(CATEGORIES_UNDER_TEST) + 2, (
         f"loca tem {len(handles)} handles: o rótulo de item vem do jogo em runtime, "
-        "só os das categorias e o botão de abrir o painel de arremesso ficam no .xml")
+        "só os das categorias e o do container de arremesso ficam no .xml")
 
-    print(f"OK — {len(CATEGORIES_UNDER_TEST)} containers vazios, {THROW_PANEL_SPELL} sem sublista, "
+    print(f"OK — {len(CATEGORIES_UNDER_TEST) + 1} containers vazios, {THROW_BASE_SPELL} herda Throw_Throw, "
           f"{len(handles)} handles fixos, sub-spells em runtime")
 
 

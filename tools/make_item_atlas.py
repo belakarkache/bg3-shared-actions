@@ -275,6 +275,9 @@ def catalog_items_with_rarity():
         for item in category_items(category, catalog):
             if (item.get("rarity") or "").lower() in RARITIES and item["icon"]:
                 by_stat.setdefault(item["stat"], item)
+    for item in catalog.get("throwables", []):
+        if (item.get("rarity") or "").lower() in RARITIES and item["icon"]:
+            by_stat.setdefault(item["stat"], item)
     return list(by_stat.values())
 
 

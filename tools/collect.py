@@ -15,6 +15,7 @@ TEMPLATE_FILES = sorted(GAMEDATA.glob("Public/*/RootTemplates/_merged.lsx"))
 USABLE_ITEM_TYPES = {"Potion": "potions", "Scroll": "scrolls"}
 THROWN_ITEM_TYPES = {"Potion", "Grenade", "Throwable"}
 PROJECTILE_SPELL_PARAMETER = "ProjectileSpell"
+GRENADE_ITEM_TYPE = "Grenade"
 MAX_INHERITANCE_DEPTH = 12
 
 DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
@@ -179,7 +180,7 @@ def main():
 
         if throwable:
             thrown = projectile_spell(templates, spells, guid)
-            if thrown:
+            if thrown or item_use_type == GRENADE_ITEM_TYPE:
                 catalog["throwables"].append({
                     "stat": name,
                     "template": guid,

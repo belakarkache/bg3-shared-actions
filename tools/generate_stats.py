@@ -56,15 +56,19 @@ CATEGORIES = [
 
 ENABLED_CATEGORIES = {"potions", "scrolls"}
 
-THROW_PANEL_SPELL = "SA_OpenThrowPanel"
+THROW_BASE_SPELL = "SA_ThrowBase"
 NATIVE_THROW_ENTRY = "Throw_Throw"
-THROW_PANEL_LABEL_HANDLE = "h366930b4g0007g4000g9000g366930b40007"
-THROW_PANEL_DESC_HANDLE = "h366930b4g0008g4000g9000g366930b40008"
-THROW_PANEL_ICON = "SharedActions_Throw" if CUSTOM_ICON_ENABLED else "Action_Throw"
-THROW_PANEL_LABEL = "Throw"
-THROW_PANEL_DESC = "Open a panel with every throwable item the party carries."
-THROW_PANEL_LABEL_PTBR = "Arremessar"
-THROW_PANEL_DESC_PTBR = "Abre um painel com os itens arremessáveis que a party carrega."
+THROW_CONTAINER = {
+    "spell": "SA_ThrowItems",
+    "use_costs": "ActionPoint:1",
+    "icon": "SharedActions_Throw" if CUSTOM_ICON_ENABLED else "Action_Throw",
+    "label_handle": "h366930b4g0007g4000g9000g366930b40007",
+    "desc_handle": "h366930b4g0008g4000g9000g366930b40008",
+    "label": "Throw",
+    "desc": "Throw an item carried by anyone in the party.",
+    "label_ptbr": "Arremessar",
+    "desc_ptbr": "Arremessa um item carregado por qualquer membro do grupo.",
+}
 
 BASE_ENTRY = "SA_Base"
 BASE_SPELL_ANIMATION = ("03496c4a-49e0-4132-b585-3e5ecd1ad8e5,,;,,;"
@@ -91,7 +95,9 @@ def throwable_templates():
     if not CATALOG_JSON.exists():
         raise SystemExit(f"{CATALOG_JSON} não existe: rode python3 tools/collect.py")
     catalog = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
-    templates = sorted({item["template"] for item in catalog.get("throwables", [])})
+    templates = {}
+    for item in catalog.get("throwables", []):
+        templates[item["template"]] = templates.get(item["template"]) or item["spell"]
     if not templates:
         raise SystemExit(
             "catalog.json sem throwables: o painel de arremesso precisa saber quais itens têm "
@@ -165,21 +171,19 @@ def emit_container(category):
     ])
 
 
-def emit_open_panel_entry():
+def emit_throw_base_entry():
     return "\n".join([
-        f'new entry "{THROW_PANEL_SPELL}"',
+        f'new entry "{THROW_BASE_SPELL}"',
         'type "SpellData"',
         f'using "{NATIVE_THROW_ENTRY}"',
-        f'data "Icon" "{THROW_PANEL_ICON}"',
-        f'data "DisplayName" "{THROW_PANEL_LABEL_HANDLE};1"',
-        f'data "Description" "{THROW_PANEL_DESC_HANDLE};1"',
         "",
     ])
 
 
 def emit_catalog_lua():
     lines = ["Catalog = {}", "", f'Catalog.BaseEntry = "{BASE_ENTRY}"',
-             f'Catalog.ThrowPanelSpell = "{THROW_PANEL_SPELL}"', "",
+             f'Catalog.ThrowBaseSpell = "{THROW_BASE_SPELL}"',
+             f'Catalog.ThrowContainer = "{THROW_CONTAINER["spell"]}"', "",
              "Catalog.Containers = {"]
     lines += [f'    "{c["spell"]}",' for c in enabled_categories()]
 
@@ -212,7 +216,7 @@ def emit_catalog_lua():
     lines += [f'    ["{key}"] = true,' for key in sorted(atlas_icon_keys())]
 
     lines += ["}", "", "Catalog.ThrowableTemplates = {"]
-    lines += [f'    ["{guid}"] = true,' for guid in throwable_templates()]
+    lines += [f'    ["{guid}"] = "{spell}",' for guid, spell in sorted(throwable_templates().items())]
 
     lines += ["}", ""]
     lines += [f"Catalog.{table} = {{}}" for table in RUNTIME_TABLES]
@@ -228,7 +232,7 @@ def main():
     localization = {lang: ['<?xml version="1.0" encoding="utf-8"?>', "<contentList>"]
                     for lang in LANGUAGES}
 
-    for category in enabled_categories():
+    for category in enabled_categories() + [THROW_CONTAINER]:
         entries.append(emit_container(category))
         for lang, (label_key, desc_key) in LANGUAGES.items():
             localization[lang].append(
@@ -239,16 +243,7 @@ def main():
                 f'{category[desc_key]}</content>')
         print(f'{category["spell"]}: container vazio, preenchido em runtime')
 
-    entries.append(emit_open_panel_entry())
-    for lang, (label, desc) in (
-        ("English", (THROW_PANEL_LABEL, THROW_PANEL_DESC)),
-        ("BrazilianPortuguese", (THROW_PANEL_LABEL_PTBR, THROW_PANEL_DESC_PTBR)),
-    ):
-        localization[lang].append(
-            f'\t<content contentuid="{THROW_PANEL_LABEL_HANDLE}" version="1">{label}</content>')
-        localization[lang].append(
-            f'\t<content contentuid="{THROW_PANEL_DESC_HANDLE}" version="1">{desc}</content>')
-    print(f"{THROW_PANEL_SPELL}: abre o painel IMGUI, sem sublista")
+    entries.append(emit_throw_base_entry())
 
     for stale in STATS_DIR.glob("Spell_*.txt"):
         stale.unlink()
@@ -262,7 +257,7 @@ def main():
 
     (LUA_DIR / "Catalog.lua").write_text(emit_catalog_lua(), encoding="utf-8")
     print(f"atlas: {len(atlas_icon_keys())} chaves de icone "
-          f"| arremesso: {len(throwable_templates())} templates elegiveis (painel IMGUI) "
+          f"| arremesso: {len(throwable_templates())} templates elegiveis (container de arremesso) "
           f"| sub-spells: criados em runtime")
 
 

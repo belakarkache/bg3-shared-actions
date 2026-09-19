@@ -1,7 +1,8 @@
 local Catalog = Catalog
 
 local MAX_FAMILY_DEPTH = 12
-local RETIRED_SPELLS = { "SA_PotionProbe_OBJ_Potion_Healing", "SA_Dig", "SA_ThrowItem" }
+local RETIRED_SPELLS = { "SA_PotionProbe_OBJ_Potion_Healing", "SA_Dig", "SA_ThrowItem",
+                         "SA_OpenThrowPanel", "SA_ThrowProbe" }
 local AREA_FIELDS = { "AreaRadius", "ExplodeRadius" }
 local HANDLE_FORMAT = "h%08xg%04xg%04xg%04xg%012x"
 
@@ -99,16 +100,7 @@ local function createSubSpell(spell, category, statName, stat, template, parent,
     created.DisplayName = handle .. ";1"
 
     if not created.Description or created.Description == "" then
-        local description = translatedHandle(template.TechnicalDescription)
-        local params = template.TechnicalDescriptionParams
-        if not description then
-            description = translatedHandle(template.Description)
-            params = nil
-        end
-        if description then
-            created.Description = description .. ";1"
-            created.DescriptionParams = params or ""
-        end
+        Tooltip.ApplyItemText(created, template)
     end
 
     local parentStat = Ext.Stats.Get(parent, nil, false)
@@ -153,7 +145,7 @@ local function registerSingle(category, statName, stat, template, parent, nextIn
     return 1
 end
 
-local function registerWithVariants(category, statName, stat, template, variants, nextIndex)
+local function registerWithVariants(category, statName, stat, template, container, variants, nextIndex)
     local pickerHandle = handleFor(nextIndex())
     local picker = spellNameFor(category, statName)
 
@@ -165,6 +157,11 @@ local function registerWithVariants(category, statName, stat, template, variants
             local variantStat = Ext.Stats.Get(variantSpell, nil, false)
             if createSubSpell(leafName, category, statName, stat, template, variantSpell, leafHandle,
                               variantStat.Icon) then
+                if not Tooltip.HasDescription(variantSpell) and Tooltip.HasDescription(container) then
+                    local leafStat = Ext.Stats.Get(leafName, nil, false)
+                    Tooltip.CopySpellText(leafStat, container)
+                    leafStat:Sync()
+                end
                 leaves[#leaves + 1] = leafName
                 Catalog.VariantGroupOf[leafName] = picker
                 Catalog.Labels[leafName] = { leafHandle, translatedHandle(template.DisplayName) or "",
@@ -181,6 +178,10 @@ local function registerWithVariants(category, statName, stat, template, variants
     end
     local pickerStat = Ext.Stats.Get(picker, nil, false)
     pickerStat.UseCosts = ""
+    if Tooltip.HasDescription(container) then
+        Tooltip.CopySpellText(pickerStat, container)
+        Tooltip.CopySpellHeader(pickerStat, container)
+    end
     pickerStat:Sync()
 
     Catalog.ScrollVariants[picker] = leaves
@@ -195,7 +196,7 @@ local function register(category, statName, stat, template, nextIndex)
 
     local variants = containerVariantsOf(parent)
     local registered = variants
-        and registerWithVariants(category, statName, stat, template, variants, nextIndex)
+        and registerWithVariants(category, statName, stat, template, parent, variants, nextIndex)
         or registerSingle(category, statName, stat, template, parent, nextIndex)
 
     if registered > 0 then
