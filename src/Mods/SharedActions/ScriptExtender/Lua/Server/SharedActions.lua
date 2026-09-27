@@ -12,7 +12,6 @@ local VariantGroupOf = Catalog.VariantGroupOf
 
 local POLL_TRIES, POLL_STEP_MS = 12, 250
 local USE_RECONCILE_MS = 10000
-local LEGACY_STATUSES = { "HAS_SHOVEL" }
 
 local channel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_Labels")
 local variantMenuChannel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_VariantMenu")
@@ -23,10 +22,6 @@ local partyCountBySpell = {}
 local appliedContainerSpells = {}
 local selfTriggeredUseByTemplate = {}
 local swappedMenu = nil
-
-local function log(...)
-    print("[SharedActions]", ...)
-end
 
 local function partyMembers()
     local members = {}
@@ -78,10 +73,7 @@ local function writeContainerSpells(container, spells)
     appliedContainerSpells[container] = joined
 
     local stat = Ext.Stats.Get(container)
-    if not stat then
-        log("ALERTA: stat não encontrado:", container)
-        return
-    end
+    if not stat then return end
     stat.ContainerSpells = joined
     stat:Sync()
 end
@@ -149,18 +141,9 @@ local function setupCharacter(character, available)
         end
     end
     if not alreadyReconciled then
-        local retired = 0
         for _, spell in ipairs(LegacySpells) do
             if Osi.HasSpell(character, spell) == 1 then
                 Osi.RemoveSpell(character, spell, 0)
-                retired = retired + 1
-            end
-        end
-        if retired > 0 then log("magias de build antigo removidas:", retired, character) end
-
-        for _, status in ipairs(LEGACY_STATUSES) do
-            if Osi.HasActiveStatus(character, status) == 1 then
-                Osi.RemoveStatus(character, status)
             end
         end
     end
@@ -272,7 +255,9 @@ Ext.Entity.OnCreateDeferred("SpellCastState", function(entity)
 end)
 
 Ext.Osiris.RegisterListener("CastSpellFailed", 5, "after", function(_, spell)
-    if isLeafOfSwappedMenu(spell) then restoreMenu() end
+    if isLeafOfSwappedMenu(spell) or (swappedMenu and swappedMenu.picker == spell) then
+        restoreMenu()
+    end
 end)
 
 Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
@@ -283,10 +268,7 @@ Ext.Osiris.RegisterListener("CastedSpell", 5, "after", function(caster, spell)
 
     local own = Osi.GetItemByTemplateInInventory(template, caster)
     local item = own or Osi.GetItemByTemplateInPartyInventory(template, caster)
-    if not item then
-        log("ALERTA: usou", spell, "mas não achei o item na party")
-        return
-    end
+    if not item then return end
 
     local key = string.lower(template)
 

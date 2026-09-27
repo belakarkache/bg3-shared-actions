@@ -4,7 +4,6 @@ local MAX_FAMILY_DEPTH = 12
 local RETIRED_SPELLS = { "SA_PotionProbe_OBJ_Potion_Healing", "SA_Dig", "SA_ThrowItem",
                          "SA_OpenThrowPanel", "SA_ThrowProbe" }
 local AREA_FIELDS = { "AreaRadius", "ExplodeRadius" }
-local HANDLE_FORMAT = "h%08xg%04xg%04xg%04xg%012x"
 
 local categoriesByUseType = {}
 for _, category in ipairs(Catalog.Categories) do
@@ -13,14 +12,6 @@ for _, category in ipairs(Catalog.Categories) do
         sharing[#sharing + 1] = category
         categoriesByUseType[useType] = sharing
     end
-end
-
-local function log(...)
-    print("[SharedActions]", ...)
-end
-
-local function handleFor(index)
-    return string.format(HANDLE_FORMAT, index, index % 0x10000, 0, 0, index)
 end
 
 local function baseFamily(templates, id)
@@ -67,12 +58,7 @@ local function parentSpellOf(category, stat, template)
     return Catalog.BaseEntry
 end
 
-local function translatedHandle(translatedString)
-    if not translatedString then return nil end
-    local handle = translatedString.Handle and translatedString.Handle.Handle
-    if not handle or handle == "" then return nil end
-    return handle
-end
+local translatedHandle = Tooltip.TranslatedHandle
 
 local function iconFor(statName, template)
     local key = "SA_Icon_" .. statName
@@ -84,43 +70,29 @@ local function spellNameFor(category, statName)
     return category.prefix .. statName .. "_" .. #statName
 end
 
-local function createSubSpell(spell, category, statName, stat, template, parent, handle, icon)
-    if Ext.Stats.Get(spell, nil, false) then return spell end
-
-    local created = Ext.Stats.Create(spell, "SpellData", parent)
-    if not created then
-        log("ALERTA: Create falhou para", spell, "| parent:", parent)
-        return nil
-    end
-
-    created.SpellContainerID = category.container
-    created.ContainerSpells = ""
-    created.Icon = (icon and icon ~= "") and icon or iconFor(statName, template)
-    created.UseCosts = category.forcedUseCosts or stat.UseCosts
-    created.DisplayName = handle .. ";1"
-
-    if not created.Description or created.Description == "" then
-        Tooltip.ApplyItemText(created, template)
-    end
-
+local function subSpellFields(category, statName, stat, template, parent, handle, icon)
     local parentStat = Ext.Stats.Get(parent, nil, false)
+    local fields = {
+        SpellContainerID = category.container,
+        ContainerSpells = "",
+        Icon = (icon and icon ~= "") and icon or iconFor(statName, template),
+        UseCosts = category.forcedUseCosts or stat.UseCosts,
+        DisplayName = handle .. ";1",
+    }
+
+    if not parentStat or not parentStat.Description or parentStat.Description == "" then
+        Tooltip.ApplyItemText(fields, template)
+    end
+
     for _, field in ipairs(AREA_FIELDS) do
         local inherited = parentStat and parentStat[field]
-        if inherited and inherited ~= "" then
-            if created[field] ~= inherited then
-                log("raio nao herdado:", spell, field, tostring(created[field]),
-                    "| pai", parent, tostring(inherited))
-            end
-            created[field] = inherited
-        end
+        if inherited and inherited ~= "" then fields[field] = inherited end
     end
 
     for field, value in pairs(category.overrides) do
-        created[field] = value
+        fields[field] = value
     end
-
-    created:Sync()
-    return spell
+    return fields
 end
 
 local function linkToTemplate(category, template, spell)
@@ -133,71 +105,92 @@ local function linkToTemplate(category, template, spell)
     Catalog.SpellContainer[spell] = category.container
 end
 
-local function registerSingle(category, statName, stat, template, parent, nextIndex)
+local function registerSingle(category, statName, stat, template, parent)
     local name = spellNameFor(category, statName)
-    local handle = handleFor(nextIndex())
-    if not createSubSpell(name, category, statName, stat, template, parent, handle) then
-        return 0
-    end
+    local handle = Spells.HandleFor(name)
+    local fields = subSpellFields(category, statName, stat, template, parent, handle)
+    if not Spells.Define(name, parent, fields) then return 0 end
 
     linkToTemplate(category, template, name)
     Catalog.Labels[name] = { handle, translatedHandle(template.DisplayName) or "" }
     return 1
 end
 
-local function registerWithVariants(category, statName, stat, template, container, variants, nextIndex)
-    local pickerHandle = handleFor(nextIndex())
-    local picker = spellNameFor(category, statName)
+local function requirementFor(useCosts)
+    local conditions = {}
+    for resource, amount in tostring(useCosts or ""):gmatch("([%a_]+):(%d+)") do
+        conditions[#conditions + 1] = string.format("HasActionResource('%s', %s, 0, false)", resource, amount)
+    end
+    return table.concat(conditions, " and ")
+end
 
-    local leaves = {}
+local function existingVariants(variants)
+    local existing = {}
     for variantIndex, variantSpell in ipairs(variants) do
-        if Ext.Stats.Get(variantSpell, nil, false) then
-            local leafName = string.format("%s_v%02d", picker, variantIndex)
-            local leafHandle = handleFor(nextIndex())
-            local variantStat = Ext.Stats.Get(variantSpell, nil, false)
-            if createSubSpell(leafName, category, statName, stat, template, variantSpell, leafHandle,
-                              variantStat.Icon) then
-                if not Tooltip.HasDescription(variantSpell) and Tooltip.HasDescription(container) then
-                    local leafStat = Ext.Stats.Get(leafName, nil, false)
-                    Tooltip.CopySpellText(leafStat, container)
-                    leafStat:Sync()
-                end
-                leaves[#leaves + 1] = leafName
-                Catalog.VariantGroupOf[leafName] = picker
-                Catalog.Labels[leafName] = { leafHandle, translatedHandle(template.DisplayName) or "",
-                                             translatedHandle(variantStat.DisplayName) or "" }
-                linkToTemplate(category, template, leafName)
-            end
+        local variantStat = Ext.Stats.Get(variantSpell, nil, false)
+        if variantStat then
+            existing[#existing + 1] = { index = variantIndex, spell = variantSpell, stat = variantStat }
         end
     end
+    return existing
+end
 
-    if #leaves == 0 then return 0 end
-
-    if not createSubSpell(picker, category, statName, stat, template, Catalog.BaseEntry, pickerHandle) then
-        return 0
+local function defineVariantLeaf(category, statName, stat, template, container, picker, variant)
+    local leafName = string.format("%s_v%02d", picker, variant.index)
+    local leafHandle = Spells.HandleFor(leafName)
+    local fields = subSpellFields(category, statName, stat, template, variant.spell, leafHandle, variant.stat.Icon)
+    if not Tooltip.HasDescription(variant.spell) and Tooltip.HasDescription(container) then
+        Tooltip.CopySpellText(fields, container)
     end
-    local pickerStat = Ext.Stats.Get(picker, nil, false)
-    pickerStat.UseCosts = ""
+    if not Spells.Define(leafName, variant.spell, fields) then return nil end
+
+    Catalog.VariantGroupOf[leafName] = picker
+    Catalog.Labels[leafName] = { leafHandle, translatedHandle(template.DisplayName) or "",
+                                 translatedHandle(variant.stat.DisplayName) or "" }
+    linkToTemplate(category, template, leafName)
+    return leafName
+end
+
+local function definePicker(category, statName, stat, template, container, picker)
+    local fields = subSpellFields(category, statName, stat, template, Catalog.BaseEntry, Spells.HandleFor(picker))
+    fields.RequirementConditions = requirementFor(category.forcedUseCosts or stat.UseCosts)
+    fields.UseCosts = ""
     if Tooltip.HasDescription(container) then
-        Tooltip.CopySpellText(pickerStat, container)
-        Tooltip.CopySpellHeader(pickerStat, container)
+        Tooltip.CopySpellText(fields, container)
+        Tooltip.CopySpellHeader(fields, container)
     end
-    pickerStat:Sync()
+    return Spells.Define(picker, Catalog.BaseEntry, fields)
+end
+
+local function registerWithVariants(category, statName, stat, template, container, variants)
+    local variantsWithStats = existingVariants(variants)
+    if #variantsWithStats == 0 then return 0 end
+
+    local picker = spellNameFor(category, statName)
+    local pickerInPak = definePicker(category, statName, stat, template, container, picker)
+
+    local leaves = {}
+    for _, variant in ipairs(variantsWithStats) do
+        local leafName = defineVariantLeaf(category, statName, stat, template, container, picker, variant)
+        if leafName then leaves[#leaves + 1] = leafName end
+    end
+
+    if not pickerInPak or #leaves == 0 then return 0 end
 
     Catalog.ScrollVariants[picker] = leaves
-    Catalog.Labels[picker] = { pickerHandle, translatedHandle(template.DisplayName) or "" }
+    Catalog.Labels[picker] = { Spells.HandleFor(picker), translatedHandle(template.DisplayName) or "" }
     linkToTemplate(category, template, picker)
     return 1 + #leaves
 end
 
-local function register(category, statName, stat, template, nextIndex)
+local function register(category, statName, stat, template)
     local parent = parentSpellOf(category, stat, template)
     if not parent then return 0 end
 
     local variants = containerVariantsOf(parent)
     local registered = variants
-        and registerWithVariants(category, statName, stat, template, parent, variants, nextIndex)
-        or registerSingle(category, statName, stat, template, parent, nextIndex)
+        and registerWithVariants(category, statName, stat, template, parent, variants)
+        or registerSingle(category, statName, stat, template, parent)
 
     if registered > 0 then
         Catalog.LegacySpells[#Catalog.LegacySpells + 1] = category.prefix .. statName
@@ -214,46 +207,19 @@ local function accepts(category, stat, family)
 end
 
 local function discover()
-    local started = Ext.Timer.MonotonicTime()
     local templates = Ext.Template.GetAllRootTemplates()
-    if not templates then return log("ALERTA: GetAllRootTemplates devolveu nil") end
-
-    local registered, unknownFamilies, index = 0, {}, 0
-    local perContainer, missingParent = {}, {}
-    local skipped = { sem_template = 0, recusado = 0, sem_magia = 0 }
+    if not templates then return end
 
     for _, statName in ipairs(Ext.Stats.GetStats("Object") or {}) do
         local stat = Ext.Stats.Get(statName, nil, false)
         local sharing = stat and categoriesByUseType[stat.ItemUseType]
+        local template = sharing and statName:sub(1, 1) ~= "_" and stat.RootTemplate and templates[stat.RootTemplate]
 
-        if sharing and statName:sub(1, 1) ~= "_" then
-            local template = stat.RootTemplate and templates[stat.RootTemplate]
-            if not template then
-                skipped.sem_template = skipped.sem_template + 1
-            else
-                local family = baseFamily(templates, template.Id)
-                for _, category in ipairs(sharing) do
-                    if not accepts(category, stat, family) then
-                        skipped.recusado = skipped.recusado + 1
-                        if family then
-                            unknownFamilies[family] = (unknownFamilies[family] or 0) + 1
-                        end
-                    else
-                        local function nextIndex()
-                            index = index + 1
-                            return index
-                        end
-                        local count = register(category, statName, stat, template, nextIndex)
-                        if count > 0 then
-                            registered = registered + count
-                            perContainer[category.container] =
-                                (perContainer[category.container] or 0) + count
-                        else
-                            skipped.sem_magia = skipped.sem_magia + 1
-                            missingParent[category.container] =
-                                (missingParent[category.container] or 0) + 1
-                        end
-                    end
+        if template then
+            local family = baseFamily(templates, template.Id)
+            for _, category in ipairs(sharing) do
+                if accepts(category, stat, family) then
+                    register(category, statName, stat, template)
                 end
             end
         end
@@ -261,19 +227,6 @@ local function discover()
 
     for _, spell in ipairs(RETIRED_SPELLS) do
         Catalog.LegacySpells[#Catalog.LegacySpells + 1] = spell
-    end
-
-    log("descoberta:", registered, "sub-spells em", Ext.Timer.MonotonicTime() - started, "ms")
-    for container, count in pairs(perContainer) do
-        log("container:", container, count, "| sem magia para herdar:",
-            missingParent[container] or 0)
-    end
-    log("descartados: sem template", skipped.sem_template,
-        "| fora da categoria", skipped.recusado,
-        "| sem magia usavel", skipped.sem_magia)
-
-    for family, count in pairs(unknownFamilies) do
-        log("familia fora das categorias:", family, count)
     end
 end
 

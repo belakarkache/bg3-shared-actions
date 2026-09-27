@@ -7,8 +7,10 @@
 ## English
 
 Use potions, scrolls and throwable items carried by **anyone in your party**, straight from
-your Action Bar. No more passing items around mid-fight. It also picks up potions and scrolls
-added by other mods.
+your Action Bar. No more passing items around mid-fight.
+
+Items from other mods only show up if they were included when this version was built. Scrolls that
+cast a spell from another mod are not supported.
 
 ### Installing
 
@@ -24,8 +26,10 @@ added by other mods.
 ## Português
 
 Use poções, pergaminhos e itens arremessáveis de **qualquer pessoa do grupo** direto pela
-Action Bar, sem ficar passando item de mochila em mochila no meio da luta. Também reconhece
-poções e pergaminhos adicionados por outros mods.
+Action Bar, sem ficar passando item de mochila em mochila no meio da luta.
+
+Itens de outros mods só aparecem se estavam incluídos quando esta versão foi gerada. Pergaminhos que
+lançam uma magia de outro mod não são suportados.
 
 ### Instalação
 

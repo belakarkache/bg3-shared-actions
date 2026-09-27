@@ -1,9 +1,5 @@
 local channel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_Labels")
 
-local function log(...)
-    print("[SharedActions]", ...)
-end
-
 local function applyLabels(payload)
     for spell, entry in pairs(payload) do
         local count, ownHandle, vanillaHandle, variantHandle = entry[1], entry[2], entry[3], entry[4]
@@ -11,7 +7,6 @@ local function applyLabels(payload)
 
         if not baseName or baseName == "" then
             baseName = Ext.Loca.GetTranslatedString(ownHandle)
-            log("sem nome do jogo:", spell, "handle:", vanillaHandle)
         end
 
         if baseName and baseName ~= "" then

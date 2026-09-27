@@ -8,10 +8,6 @@ local channel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_Throw")
 
 local aimingCast = nil
 
-local function log(...)
-    print("[SharedActions]", ...)
-end
-
 local function uuidOf(value)
     if value == nil then return nil end
     if type(value) == "string" then return string.sub(value, -36) end
@@ -39,18 +35,17 @@ end
 local function stripInventorySelection(spell)
     local stat = Ext.Stats.Get(spell, nil, false)
     local current = stat and flagsList(stat)
-    if not current then return log("ALERTA: sub-spell de arremesso ausente no cliente:", spell) end
+    if not current then return end
 
     local flags = {}
     for _, flag in ipairs(current) do
         if flag ~= STRIPPED_FLAG then flags[#flags + 1] = flag end
     end
     if #flags == #current then return end
-    local ok, err = pcall(function()
+    pcall(function()
         stat.SpellFlags = flags
         stat:Sync()
     end)
-    if not ok then log("ALERTA: InventorySelection nao removida de", spell, err) end
 end
 
 local function applyItems(payload)
@@ -64,9 +59,9 @@ local function applyItems(payload)
 end
 
 local function aimWithItem(itemUuid)
-    if not aimingCast then return log("ALERTA: a mira fechou antes de o item chegar") end
+    if not aimingCast then return end
     local state, targeting = aimingCast.ClientSpellCastState, aimingCast.ClientSpellCastTargeting
-    if not state or not targeting then return log("ALERTA: mira sem estado de targeting") end
+    if not state or not targeting then return end
 
     local itemEntity = Ext.Entity.Get(itemUuid)
     pcall(function()

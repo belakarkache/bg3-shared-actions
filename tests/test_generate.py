@@ -7,8 +7,10 @@ ROOT = Path(__file__).resolve().parent.parent
 STATS_DIR = ROOT / "src/Public/SharedActions/Stats/Generated/Data"
 CATALOG_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Catalog.lua"
 DISCOVERY_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/Discovery.lua"
+SERVER_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/SharedActions.lua"
 THROW_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server/Throw.lua"
 CLIENT_THROW_LUA = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Client/Throw.lua"
+SERVER_LUA_DIR = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua/Server"
 LOCA_EN = ROOT / "src/Mods/SharedActions/Localization/English/SharedActions.xml"
 LOCA_PT = ROOT / "src/Mods/SharedActions/Localization/BrazilianPortuguese/SharedActions.xml"
 ATLAS_LSX = ROOT / "src/Public/SharedActions/GUI/SharedActions_Items.lsx"
@@ -36,6 +38,9 @@ THROW_DESC_HANDLE = "h366930b4g0008g4000g9000g366930b40008"
 RETIRED_THROW_SPELLS = ["SA_ThrowItem", "SA_OpenThrowPanel", "SA_ThrowProbe"]
 
 STATS_FILES = ["Spell_Shout.txt"]
+SUB_SPELL_PREFIXES = ("SA_Potion_", "SA_Scroll_", "SA_Throwable_")
+MIN_SUB_SPELLS = 100
+EXPORT_HINT = ("no jogo, console do servidor: !sa_export; depois ./tools/generate.sh e o build")
 
 RUNTIME_TABLES = ["TemplateToSpell", "SpellToTemplate", "SpellContainer", "Labels",
                   "LegacySpells", "ScrollVariants", "VariantGroupOf"]
@@ -52,6 +57,7 @@ ATLAS_UUID_PATTERN = re.compile(r'id="UUID" type="FixedString" value="([^"]+)"')
 DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
 USING_PATTERN = re.compile(r'^using "([^"]+)"', re.M)
 ICON_KEY_PATTERN = re.compile(r'\["(SA_Icon_[^"]+)"\] = true')
+LOCA_HANDLE_FIELD = re.compile(r"h[0-9a-g]{36};\d+")
 SUB_SPELL_PATTERN = re.compile(r'\["(SA_(?:Potion|Scroll)_[^"]+)"\]')
 THROWABLE_TEMPLATE_PATTERN = re.compile(r'\["([0-9a-f-]{36})"\] = "[A-Za-z0-9_]*"')
 
@@ -66,8 +72,8 @@ loca_pt = LOCA_PT.read_text(encoding="utf-8")
 def parse_stats():
     files = sorted(STATS_DIR.glob("Spell_*.txt"))
     assert [path.name for path in files] == STATS_FILES, (
-        "os sub-spells nascem em runtime: o build só emite o esqueleto "
-        f"{STATS_FILES}, mas achei {[path.name for path in files]}")
+        f"o build emite exatamente {STATS_FILES}: as bases e, depois delas, os sub-spells exportados "
+        f"do jogo. Achei {[path.name for path in files]}")
 
     entries = {}
     for path in files:
@@ -76,8 +82,42 @@ def parse_stats():
             fields = dict(DATA_FIELD_PATTERN.findall(block))
             parent = USING_PATTERN.search(block)
             fields["_using"] = parent.group(1) if parent else None
+            fields["_position"] = len(entries)
             entries[name] = fields
     return entries
+
+
+def check_parents_come_first(entries):
+    for name, fields in entries.items():
+        parent = entries.get(fields["_using"])
+        assert parent is None or parent["_position"] < fields["_position"], (
+            f"{name} vem antes do pai {fields['_using']}: o jogo não resolve using para entrada que "
+            "ainda não carregou, e o filho perde flags, alvo e animação (poção e arremesso deram "
+            "CastSpellFailed na hora, 2026-09-22)")
+
+
+def check_no_runtime_spell_creation():
+    for lua_file in sorted(SERVER_LUA_DIR.glob("*.lua")):
+        assert "Ext.Stats.Create" not in lua_file.read_text(encoding="utf-8"), (
+            f"{lua_file.name} chama Ext.Stats.Create: spell criado em runtime fica fora do cache de "
+            "protótipos da IA de combate, e o jogo crasha no turno de quem o tem (dump de "
+            "2026-09-22, NOTES.md). Sub-spell tem de vir do pak, via !sa_export + generate.sh")
+
+
+def check_sub_spells(entries):
+    sub_spells = {name: fields for name, fields in entries.items()
+                  if name.startswith(SUB_SPELL_PREFIXES)}
+    assert len(sub_spells) >= MIN_SUB_SPELLS, (
+        f"só {len(sub_spells)} sub-spells no pak: sem eles os menus ficam vazios — {EXPORT_HINT}")
+    for name, fields in sub_spells.items():
+        assert fields["_using"], f"{name}: sem using, não herda a mira/efeito do pai"
+        assert fields.get("SpellType"), (
+            f"{name}: sem SpellType explícito — o export copia do pai para não depender de a "
+            "herança resolver um pai de outro mod")
+        assert LOCA_HANDLE_FIELD.fullmatch(fields.get("DisplayName", "")), (
+            f"{name}: DisplayName {fields.get('DisplayName')!r} não é handle;versão — o rótulo "
+            "do cliente escreve texto nesse handle")
+    return len(sub_spells)
 
 
 def check_base_entry(entries):
@@ -183,7 +223,8 @@ def check_runtime_tables():
 
     leaked = SUB_SPELL_PATTERN.findall(lua)
     assert not leaked, (
-        f"Catalog.lua traz sub-spell de build time: {leaked[:3]} — quem cria é Discovery.lua")
+        f"Catalog.lua traz sub-spell: {leaked[:3]} — os sub-spells vão para "
+        f"{STATS_FILES[0]}, e o catálogo é preenchido pela descoberta em runtime")
 
 
 def check_category_rules(container_name, prefix, use_types, families, inherits):
@@ -210,6 +251,9 @@ def check_category_rules(container_name, prefix, use_types, families, inherits):
 
 def main():
     entries = parse_stats()
+    check_no_runtime_spell_creation()
+    check_parents_come_first(entries)
+    sub_spell_count = check_sub_spells(entries)
     check_base_entry(entries)
     check_icon_atlases()
     check_runtime_tables()
@@ -221,6 +265,8 @@ def main():
         "de quem já carregou a pá")
     assert "Dig" not in lua and "SHOVEL" not in lua, (
         "Cavar foi descontinuado: Catalog.lua não deve mais gerar nada ligado a ele")
+    assert "HAS_SHOVEL" not in SERVER_LUA.read_text(encoding="utf-8"), (
+        "HAS_SHOVEL é status vanilla (StatusInInventory da pá): removê-lo desabilita Target_Dig")
 
     for translation in ("Tomar Poção", "Usar Pergaminho", "Arremessar"):
         assert translation in loca_pt, f"faltou a tradução PT-BR de {translation}"
@@ -239,7 +285,7 @@ def main():
         "só os das categorias e o do container de arremesso ficam no .xml")
 
     print(f"OK — {len(CATEGORIES_UNDER_TEST) + 1} containers vazios, {THROW_BASE_SPELL} herda Throw_Throw, "
-          f"{len(handles)} handles fixos, sub-spells em runtime")
+          f"{len(handles)} handles fixos, {sub_spell_count} sub-spells no pak")
 
 
 if __name__ == "__main__":

@@ -10,5 +10,11 @@ if [[ -z "${BG3_DATA:-}" && -f "$WORKSPACE_ENV" ]]; then
            DIVINE="$DIVINE" TEXCONV="$TEXCONV"
 fi
 
+SPELLS_EXPORT="${SE_MOD_CONFIG:-}/SharedActions/spells.json"
+if [[ -f "$SPELLS_EXPORT" ]]; then
+    mkdir -p data
+    cp "$SPELLS_EXPORT" data/spells.json
+fi
+
 python3 tools/generate_stats.py
 python3 tests/test_generate.py

@@ -5,6 +5,8 @@ import os
 import re
 from pathlib import Path
 
+from collect import GAMEDATA, SPELL_FILES, parse_stat_entries
+
 CUSTOM_ICON_ENABLED = os.environ.get("SA_ICON") != "0"
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -13,6 +15,9 @@ LOCALIZATION_ROOT = ROOT / "src/Mods/SharedActions/Localization"
 LUA_DIR = ROOT / "src/Mods/SharedActions/ScriptExtender/Lua"
 ITEM_ATLAS_LSX = ROOT / "src/Public/SharedActions/GUI/SharedActions_Items.lsx"
 CATALOG_JSON = ROOT / "data/catalog.json"
+SPELLS_JSON = ROOT / "data/spells.json"
+STATS_FILE = "Spell_Shout.txt"
+EXPORT_COMMAND = "!sa_export"
 
 LANGUAGES = {
     "English": ("label", "desc"),
@@ -81,6 +86,7 @@ RUNTIME_TABLES = ["TemplateToSpell", "SpellToTemplate", "SpellContainer", "Label
                   "LegacySpells", "ScrollVariants", "VariantGroupOf"]
 
 MAP_KEY_PATTERN = re.compile(r'MapKey" type="FixedString" value="([^"]+)"')
+UNVERSIONED_LOCA_HANDLE = re.compile(r"h[0-9a-g]{36}")
 
 
 @functools.lru_cache(maxsize=1)
@@ -104,6 +110,48 @@ def throwable_templates():
             "efeito ao quebrar (ProjectileSpell no nó Scripts, ilegível em runtime) — "
             "rode python3 tools/collect.py")
     return templates
+
+
+@functools.lru_cache(maxsize=1)
+def vanilla_spells():
+    if not SPELL_FILES:
+        raise SystemExit(f"sem dados do jogo em {GAMEDATA} — aponte BG3_DATA para os .pak extraídos")
+    return frozenset(parse_stat_entries(SPELL_FILES))
+
+
+def inherits_from_game_or_self(spell):
+    parent = spell["parent"]
+    return parent.startswith("SA_") or parent in vanilla_spells()
+
+
+def exported_sub_spells():
+    if not SPELLS_JSON.exists():
+        print(f"ALERTA: {SPELLS_JSON} não existe — o pak sai sem sub-spells. No jogo, console do "
+              f"servidor: {EXPORT_COMMAND}; depois rode tools/generate.sh de novo")
+        return []
+    exported = json.loads(SPELLS_JSON.read_text(encoding="utf-8"))
+    kept = [spell for spell in exported if inherits_from_game_or_self(spell)]
+    print(f"sub-spells: {len(exported) - len(kept)} descartados por herdar magia de outro mod")
+    return kept
+
+
+def stat_value(spell_name, field, value):
+    if '"' in value or "\n" in value:
+        raise SystemExit(f"{spell_name}.{field}: valor com aspas ou quebra de linha, "
+                         f"o formato .txt não comporta: {value!r}")
+    if value.startswith("ls::"):
+        raise SystemExit(f"{spell_name}.{field}: {value!r} é o marcador de handle vazio da SE, não um "
+                         "handle — corrija a leitura no Lua (Tooltip.TranslatedHandle) e exporte de novo")
+    if UNVERSIONED_LOCA_HANDLE.fullmatch(value):
+        return value + ";1"
+    return value
+
+
+def emit_sub_spell(spell):
+    lines = [f'new entry "{spell["name"]}"', 'type "SpellData"', f'using "{spell["parent"]}"']
+    lines += [f'data "{field}" "{stat_value(spell["name"], field, value)}"'
+              for field, value in sorted(spell["fields"].items())]
+    return "\n".join(lines + [""])
 
 
 def enabled_categories():
@@ -245,9 +293,12 @@ def main():
 
     entries.append(emit_throw_base_entry())
 
+    sub_spells = exported_sub_spells()
+    entries += [emit_sub_spell(spell) for spell in sub_spells]
+
     for stale in STATS_DIR.glob("Spell_*.txt"):
         stale.unlink()
-    (STATS_DIR / "Spell_Shout.txt").write_text("\n".join(entries), encoding="utf-8")
+    (STATS_DIR / STATS_FILE).write_text("\n".join(entries), encoding="utf-8")
 
     for lang, lines in localization.items():
         directory = LOCALIZATION_ROOT / lang
@@ -258,7 +309,7 @@ def main():
     (LUA_DIR / "Catalog.lua").write_text(emit_catalog_lua(), encoding="utf-8")
     print(f"atlas: {len(atlas_icon_keys())} chaves de icone "
           f"| arremesso: {len(throwable_templates())} templates elegiveis (container de arremesso) "
-          f"| sub-spells: criados em runtime")
+          f"| sub-spells: {len(sub_spells)} do export do jogo, depois das bases em {STATS_FILE}")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,5 @@
 local Catalog = Catalog
 
-local HANDLE_FORMAT = "h%08xg%04xg%04xg%04xg%012x"
-local HANDLE_OFFSET = 500000
 local SPELL_PREFIX = "SA_Throwable_"
 local PROBE_SPELL_PREFIX = "SA_ThrowProbe_"
 local TRANSFER_POLL_MS = 100
@@ -21,10 +19,6 @@ local pendingThrow = {}
 local grantedByCharacter = {}
 local appliedContainerSpells = nil
 local castRequestHookRegistered = false
-
-local function log(...)
-    print("[SharedActions]", ...)
-end
 
 local function isThrowSpell(prototype)
     return prototype ~= nil and keyBySpell[prototype] ~= nil
@@ -61,17 +55,7 @@ local function partyMembers()
     return members
 end
 
-local function handleFor(index)
-    local value = HANDLE_OFFSET + index
-    return string.format(HANDLE_FORMAT, value, value % 0x10000, 0, 0, value)
-end
-
-local function translatedHandle(translatedString)
-    if not translatedString then return nil end
-    local handle = translatedString.Handle and translatedString.Handle.Handle
-    if not handle or handle == "" then return nil end
-    return handle
-end
+local translatedHandle = Tooltip.TranslatedHandle
 
 local function spellNameFor(prefix, template)
     return prefix .. template.Name .. "_" .. #template.Name
@@ -83,51 +67,45 @@ local function iconFor(template)
     return template.Icon
 end
 
-local function createItemSpell(template, handle)
+local function defineItemSpell(template)
     local spell = spellNameFor(SPELL_PREFIX, template)
-    if keyBySpell[spell] then return log("ALERTA: nome de template repetido, item fora do arremesso:", template.Id) end
-    if Ext.Stats.Get(spell, nil, false) then return spell end
+    if keyBySpell[spell] then return end
 
-    local stat = Ext.Stats.Create(spell, "SpellData", Catalog.ThrowBaseSpell)
-    if not stat then return log("ALERTA: Create falhou para", spell) end
-    stat.SpellContainerID = Catalog.ThrowContainer
-    stat.Icon = iconFor(template)
-    stat.DisplayName = handle .. ";1"
+    local fields = {
+        SpellContainerID = Catalog.ThrowContainer,
+        Icon = iconFor(template),
+        DisplayName = Spells.HandleFor(spell) .. ";1",
+    }
     local projectileSpell = Catalog.ThrowableTemplates[template.Id]
     if Tooltip.HasDescription(projectileSpell) then
-        Tooltip.CopySpellText(stat, projectileSpell)
+        Tooltip.CopySpellText(fields, projectileSpell)
     else
-        Tooltip.ApplyItemText(stat, template)
+        Tooltip.ApplyItemText(fields, template)
     end
-    stat:Sync()
-    return spell
+    return Spells.Define(spell, Catalog.ThrowBaseSpell, fields)
 end
 
 local function discoverItems()
     local templates = Ext.Template.GetAllRootTemplates()
-    if not templates then return log("ALERTA: GetAllRootTemplates devolveu nil") end
+    if not templates then return end
 
-    local index = 0
     for guid in pairs(Catalog.ThrowableTemplates) do
         local template = templates[guid]
         if template then
-            index = index + 1
-            local handle = handleFor(index)
-            local spell = createItemSpell(template, handle)
+            local spell = defineItemSpell(template)
             if spell then
                 local key = string.lower(template.Name .. "_" .. template.Id)
                 keyBySpell[spell] = key
                 itemInfo[key] = {
                     originalKey = template.Name .. "_" .. template.Id,
                     spell = spell,
-                    handle = handle,
+                    handle = Spells.HandleFor(spell),
                     nameHandle = translatedHandle(template.DisplayName),
                 }
             end
             Catalog.LegacySpells[#Catalog.LegacySpells + 1] = spellNameFor(PROBE_SPELL_PREFIX, template)
         end
     end
-    log("arremesso:", index, "itens com sub-spell")
 end
 
 local function countInParty(key, queryAnchor)
@@ -188,7 +166,7 @@ local function rebuildContainer()
     if joined == appliedContainerSpells then return end
 
     local stat = Ext.Stats.Get(Catalog.ThrowContainer)
-    if not stat then return log("ALERTA: stat não encontrado:", Catalog.ThrowContainer) end
+    if not stat then return end
     appliedContainerSpells = joined
     stat.ContainerSpells = joined
     stat:Sync()
@@ -358,14 +336,14 @@ end
 
 local function sendAimItem(casterUuid, itemUuid)
     local userId = Osi.GetReservedUserID(casterUuid)
-    if not userId then return log("ALERTA: sem UserID reservado para", casterUuid) end
+    if not userId then return end
     channel:SendToClient({ aimItem = itemUuid }, userId)
 end
 
 local function waitForItemInInventory(casterUuid, templateKey, attemptsLeft)
     local item = Osi.GetItemByTemplateInInventory(templateKey, casterUuid)
     if item then return sendAimItem(casterUuid, uuidOf(item)) end
-    if attemptsLeft <= 0 then return log("ALERTA: item nao chegou ao inventario de quem arremessa:", templateKey) end
+    if attemptsLeft <= 0 then return end
     Ext.Timer.WaitFor(TRANSFER_POLL_MS, function()
         waitForItemInInventory(casterUuid, templateKey, attemptsLeft - 1)
     end)
@@ -373,7 +351,7 @@ end
 
 local function prepareThrow(caster, spell)
     local info = itemInfo[keyBySpell[spell]]
-    if not info then return log("ALERTA: spell desconhecida no pedido de arremesso:", spell) end
+    if not info then return end
     local casterUuid = uuidOf(caster)
     returnItem(casterUuid)
     ensureCastRequestHook()
@@ -382,7 +360,7 @@ local function prepareThrow(caster, spell)
     local ownItem = Osi.GetItemByTemplateInInventory(info.originalKey, casterUuid)
     if not ownItem then
         local ownerItem = Osi.GetItemByTemplateInPartyInventory(info.originalKey, casterUuid)
-        if not ownerItem then return log("ALERTA: item nao achado na party:", spell) end
+        if not ownerItem then return end
         originalOwner = Osi.GetInventoryOwner(ownerItem)
         Osi.ToInventory(ownerItem, casterUuid, 1, 0)
     end

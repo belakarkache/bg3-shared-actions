@@ -1,5 +1,6 @@
 Ext.Require("Catalog.lua")
 Ext.Require("Server/Tooltip.lua")
+Ext.Require("Server/Spells.lua")
 Ext.Require("Server/Discovery.lua")
 Ext.Require("Server/SharedActions.lua")
 Ext.Require("Server/Throw.lua")

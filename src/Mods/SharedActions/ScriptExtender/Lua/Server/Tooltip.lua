@@ -7,6 +7,7 @@ local SPELL_TOOLTIP_FIELDS = {
     "TooltipUpcastDescription", "TooltipUpcastDescriptionParams",
 }
 local SPELL_HEADER_FIELDS = { "Level", "SpellSchool" }
+local UNKNOWN_HANDLE = "ls::TranslatedStringRepository::s_HandleUnknown"
 
 local function copyFields(target, source, fields)
     for _, field in ipairs(fields) do
@@ -15,12 +16,14 @@ local function copyFields(target, source, fields)
     end
 end
 
-local function translatedHandle(translatedString)
+function Tooltip.TranslatedHandle(translatedString)
     if not translatedString then return nil end
     local handle = translatedString.Handle and translatedString.Handle.Handle
-    if not handle or handle == "" then return nil end
+    if not handle or handle == "" or handle == UNKNOWN_HANDLE then return nil end
     return handle
 end
+
+local translatedHandle = Tooltip.TranslatedHandle
 
 function Tooltip.HasDescription(spellName)
     local stat = spellName and spellName ~= "" and Ext.Stats.Get(spellName, nil, false)
