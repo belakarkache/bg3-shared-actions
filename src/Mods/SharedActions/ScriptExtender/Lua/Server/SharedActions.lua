@@ -22,16 +22,9 @@ local partyCountBySpell = {}
 local appliedContainerSpells = {}
 local selfTriggeredUseByTemplate = {}
 local swappedMenu = nil
+local strippedCharacters = {}
 
-local function partyMembers()
-    local members = {}
-    for _, row in ipairs(Osi.DB_Players:Get(nil) or {}) do
-        if Osi.IsSummon(row[1]) ~= 1 then
-            members[#members + 1] = row[1]
-        end
-    end
-    return members
-end
+local partyMembers = Party.Members
 
 local function countInParty(template, queryAnchor)
     return Osi.TemplateIsInPartyInventory(template, queryAnchor, 0) or 0
@@ -151,8 +144,25 @@ local function setupCharacter(character, available)
     reconciledWithSave[character] = true
 end
 
+local function stripCharacter(character)
+    if strippedCharacters[character] then return end
+    strippedCharacters[character] = true
+    grantedSpellsByCharacter[character] = nil
+    reconciledWithSave[character] = nil
+    Party.StripSpells(character, Containers)
+    local spells = {}
+    for spell in pairs(SpellContainer) do
+        spells[#spells + 1] = spell
+    end
+    Party.StripSpells(character, spells)
+    Party.StripSpells(character, LegacySpells)
+end
+
 local function resync()
-    local members = partyMembers()
+    local members, others = Party.Split()
+    for _, character in ipairs(others) do
+        stripCharacter(character)
+    end
     if #members == 0 then return end
     local queryAnchor = members[1]
 
@@ -311,8 +321,8 @@ Ext.Osiris.RegisterListener("TemplateUseFinished", 4, "after", function(_, templ
 end)
 
 Ext.Osiris.RegisterListener("CharacterJoinedParty", 1, "after", function(character)
-    if Osi.IsSummon(character) == 1 then return end
     resync()
+    if not Party.IsPlayable(character) then return end
     if not grantedSpellsByCharacter[character] then
         setupCharacter(character, availableSpells())
     end
@@ -321,11 +331,13 @@ end)
 Ext.Osiris.RegisterListener("CharacterLeftParty", 1, "after", function(character)
     grantedSpellsByCharacter[character] = nil
     reconciledWithSave[character] = nil
+    strippedCharacters[character] = nil
 end)
 
 Ext.Osiris.RegisterListener("LevelGameplayStarted", 2, "after", function()
     grantedSpellsByCharacter, partyCountBySpell = {}, {}
     reconciledWithSave, appliedContainerSpells = {}, {}
+    strippedCharacters = {}
     swappedMenu = nil
     resync()
 end)

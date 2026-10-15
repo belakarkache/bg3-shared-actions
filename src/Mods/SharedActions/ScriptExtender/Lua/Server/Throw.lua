@@ -19,6 +19,7 @@ local pendingThrow = {}
 local grantedByCharacter = {}
 local appliedContainerSpells = nil
 local castRequestHookRegistered = false
+local strippedCharacters = {}
 
 local function isThrowSpell(prototype)
     return prototype ~= nil and keyBySpell[prototype] ~= nil
@@ -45,15 +46,7 @@ local function jsonText(value)
     return ""
 end
 
-local function partyMembers()
-    local members = {}
-    for _, row in ipairs(Osi.DB_Players:Get(nil) or {}) do
-        if Osi.IsSummon(row[1]) ~= 1 then
-            members[#members + 1] = row[1]
-        end
-    end
-    return members
-end
+local partyMembers = Party.Members
 
 local translatedHandle = Tooltip.TranslatedHandle
 
@@ -172,8 +165,22 @@ local function rebuildContainer()
     stat:Sync()
 end
 
+local function stripCharacter(character)
+    if strippedCharacters[character] then return end
+    strippedCharacters[character] = true
+    grantedByCharacter[character] = nil
+    local spells = { Catalog.ThrowContainer }
+    for spell in pairs(keyBySpell) do
+        spells[#spells + 1] = spell
+    end
+    Party.StripSpells(character, spells)
+end
+
 local function resync()
-    local members = partyMembers()
+    local members, others = Party.Split()
+    for _, character in ipairs(others) do
+        stripCharacter(character)
+    end
     if #members == 0 then return end
 
     local changed = {}
@@ -411,18 +418,19 @@ Ext.Osiris.RegisterListener("TemplateRemovedFrom", 3, "after", function(template
 end)
 
 Ext.Osiris.RegisterListener("CharacterJoinedParty", 1, "after", function(character)
-    if Osi.IsSummon(character) == 1 then return end
     resync()
-    setupCharacter(character)
+    if Party.IsPlayable(character) then setupCharacter(character) end
 end)
 
 Ext.Osiris.RegisterListener("CharacterLeftParty", 1, "after", function(character)
     grantedByCharacter[character] = nil
+    strippedCharacters[character] = nil
     resync()
 end)
 
 Ext.Osiris.RegisterListener("LevelGameplayStarted", 2, "after", function()
     countByTemplate, pendingThrow, grantedByCharacter = {}, {}, {}
+    strippedCharacters = {}
     appliedContainerSpells = nil
     resync()
     ensureCastRequestHook()
