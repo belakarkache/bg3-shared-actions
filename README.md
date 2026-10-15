@@ -11,7 +11,7 @@ Use potions, scrolls and throwable items carried by anyone in your party, straig
 ## Installation
 
 1. **Back up your save.** The mod adds spells that are saved with your game.
-2. Download the mod from [Nexus Mods](https://www.nexusmods.com/baldursgate3) or [GitHub Releases](https://github.com/belakarkache/bg3-shared-actions/releases).
+2. Download the mod from [Nexus Mods](https://www.nexusmods.com/baldursgate3/mods/25804) or [GitHub Releases](https://github.com/belakarkache/bg3-shared-actions/releases).
 3. In **BG3 Mod Manager**, import the `.zip`, enable **Shared Actions** and click **Export Load Order to Game**.
 4. Start the game. The new buttons are on the Action Bar.
 
