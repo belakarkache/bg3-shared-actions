@@ -7,6 +7,7 @@
 !/src
 !/tools
 !/tests
+!/docs
 
 __pycache__/
 build/
