@@ -1,8 +1,8 @@
-![Shared Actions: Take Potion, Use Scroll and Throw buttons on the Action Bar](https://raw.githubusercontent.com/belakarkache/bg3-shared-actions/main/docs/media/cover.png)
+![Shared Actions: Take Potion, Use Scroll, Quiver and Throw buttons on the Action Bar](https://raw.githubusercontent.com/belakarkache/bg3-shared-actions/main/docs/media/cover.png)
 
 # Shared Actions
 
-Use potions, scrolls and throwable items carried by anyone in your party, straight from your Action Bar. The mod adds three buttons, **Take Potion**, **Use Scroll** and **Throw**, so you don't have to pass items between characters in the middle of a fight.
+Use potions, scrolls, special arrows and throwable items carried by anyone in your party, straight from your Action Bar. The mod adds four buttons, **Take Potion**, **Use Scroll**, **Quiver** and **Throw**, so you don't have to pass items between characters in the middle of a fight. **Quiver** needs a bow or crossbow equipped and lists only special arrows, since regular ammo is unlimited.
 
 ## Requirements
 

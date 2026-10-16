@@ -28,6 +28,11 @@ CATEGORIES_UNDER_TEST = [
      "h366930b4g0002g4000g9000g366930b40002",
      "h366930b4g0004g4000g9000g366930b40004",
      "item"),
+    ("SA_Quiver", "SA_Arrow_", {"Arrow"}, "ActionPoint:1",
+     {"BASE_LOOT_Arrow"},
+     "h366930b4g0009g4000g9000g366930b40009",
+     "h366930b4g000ag4000g9000g366930b4000a",
+     "item"),
 ]
 
 THROW_BASE_SPELL = "SA_ThrowBase"
@@ -38,7 +43,7 @@ THROW_DESC_HANDLE = "h366930b4g0008g4000g9000g366930b40008"
 RETIRED_THROW_SPELLS = ["SA_ThrowItem", "SA_OpenThrowPanel", "SA_ThrowProbe"]
 
 STATS_FILES = ["Spell_Shout.txt"]
-SUB_SPELL_PREFIXES = ("SA_Potion_", "SA_Scroll_", "SA_Throwable_")
+SUB_SPELL_PREFIXES = ("SA_Potion_", "SA_Scroll_", "SA_Arrow_", "SA_Throwable_")
 MIN_SUB_SPELLS = 100
 EXPORT_HINT = ("no jogo, console do servidor: !sa_export; depois ./tools/generate.sh e o build")
 
@@ -58,7 +63,7 @@ DATA_FIELD_PATTERN = re.compile(r'^data "([^"]+)" "([^"]*)"', re.M)
 USING_PATTERN = re.compile(r'^using "([^"]+)"', re.M)
 ICON_KEY_PATTERN = re.compile(r'\["(SA_Icon_[^"]+)"\] = true')
 LOCA_HANDLE_FIELD = re.compile(r"h[0-9a-g]{36};\d+")
-SUB_SPELL_PATTERN = re.compile(r'\["(SA_(?:Potion|Scroll)_[^"]+)"\]')
+SUB_SPELL_PATTERN = re.compile(r'\["(SA_(?:Potion|Scroll|Arrow)_[^"]+)"\]')
 THROWABLE_TEMPLATE_PATTERN = re.compile(r'\["([0-9a-f-]{36})"\] = "[A-Za-z0-9_]*"')
 
 lua = CATALOG_LUA.read_text(encoding="utf-8")
@@ -268,7 +273,7 @@ def main():
     assert "HAS_SHOVEL" not in SERVER_LUA.read_text(encoding="utf-8"), (
         "HAS_SHOVEL é status vanilla (StatusInInventory da pá): removê-lo desabilita Target_Dig")
 
-    for translation in ("Tomar Poção", "Usar Pergaminho", "Arremessar"):
+    for translation in ("Tomar Poção", "Usar Pergaminho", "Aljava", "Arremessar"):
         assert translation in loca_pt, f"faltou a tradução PT-BR de {translation}"
 
     for (container_name, prefix, use_types, use_costs,

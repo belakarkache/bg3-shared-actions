@@ -12,7 +12,7 @@ STATS_FILES = sorted(GAMEDATA.glob("Public/*/Stats/Generated/Data/Object.txt"))
 SPELL_FILES = sorted(GAMEDATA.glob("Public/*/Stats/Generated/Data/Spell_*.txt"))
 TEMPLATE_FILES = sorted(GAMEDATA.glob("Public/*/RootTemplates/_merged.lsx"))
 
-USABLE_ITEM_TYPES = {"Potion": "potions", "Scroll": "scrolls"}
+USABLE_ITEM_TYPES = {"Potion": "potions", "Scroll": "scrolls", "Arrow": "arrows"}
 THROWN_ITEM_TYPES = {"Potion", "Grenade", "Throwable"}
 PROJECTILE_SPELL_PARAMETER = "ProjectileSpell"
 GRENADE_ITEM_TYPE = "Grenade"
@@ -217,6 +217,7 @@ def main():
     output.write_text(json.dumps(catalog, indent=1, ensure_ascii=False), encoding="utf-8")
 
     print(f"poções: {len(catalog['potions'])} | pergaminhos: {len(catalog['scrolls'])} "
+          f"| flechas: {len(catalog['arrows'])} "
           f"| arremessáveis: {len(catalog['throwables'])}", file=sys.stderr)
     print(f"descartados: {skipped}", file=sys.stderr)
     print(f"-> {output}", file=sys.stderr)

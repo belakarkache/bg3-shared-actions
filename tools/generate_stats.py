@@ -57,9 +57,25 @@ CATEGORIES = [
         "families": {"BASE_BOOK_Scroll_Magic"},
         "inherits_item_spell": True,
     },
+    {
+        "key": "arrows",
+        "spell": "SA_Quiver",
+        "prefix": "SA_Arrow_",
+        "use_types": {"Arrow"},
+        "label": "Quiver",
+        "label_handle": "h366930b4g0009g4000g9000g366930b40009",
+        "desc_handle": "h366930b4g000ag4000g9000g366930b4000a",
+        "desc": "Shoot a special arrow carried by anyone in the party.",
+        "label_ptbr": "Aljava",
+        "desc_ptbr": "Dispara uma flecha especial carregada por qualquer membro do grupo.",
+        "icon": "SharedActions_Quiver" if CUSTOM_ICON_ENABLED else "Item_ARR_Arrow_Of_Piercing",
+        "use_costs": "ActionPoint:1",
+        "families": {"BASE_LOOT_Arrow"},
+        "inherits_item_spell": True,
+    },
 ]
 
-ENABLED_CATEGORIES = {"potions", "scrolls"}
+ENABLED_CATEGORIES = {"potions", "scrolls", "arrows"}
 
 THROW_BASE_SPELL = "SA_ThrowBase"
 NATIVE_THROW_ENTRY = "Throw_Throw"
