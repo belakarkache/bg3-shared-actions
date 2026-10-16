@@ -44,6 +44,16 @@
 					<attribute id="Template" type="FixedString" value="SharedActions_Throw" />
 					<attribute id="Type" type="int64" value="0" />
 				</node>
+				<node id="Resource">
+					<attribute id="ID" type="FixedString" value="7ef4ef97-e514-4e82-86f0-75b415a8bbd2" />
+					<attribute id="Localized" type="bool" value="False" />
+					<attribute id="Name" type="LSString" value="SharedActions_Quiver" />
+					<attribute id="SRGB" type="bool" value="True" />
+					<attribute id="SourceFile" type="LSString" value="Public/SharedActions/Assets/Textures/Icons/SharedActions_Quiver.dds" />
+					<attribute id="Streaming" type="bool" value="True" />
+					<attribute id="Template" type="FixedString" value="SharedActions_Quiver" />
+					<attribute id="Type" type="int64" value="0" />
+				</node>
 			</children>
 		</node>
 	</region>

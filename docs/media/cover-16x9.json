@@ -1,0 +1,26 @@
+{
+  "style": "bg3",
+  "align": "center",
+  "name": "Shared Actions",
+  "tiles": [
+    {
+      "icon": "icons/take-potion.png",
+      "label": "Take Potion"
+    },
+    {
+      "icon": "icons/use-scroll.png",
+      "label": "Use Scroll"
+    },
+    {
+      "icon": "icons/quiver.png",
+      "label": "Quiver"
+    },
+    {
+      "icon": "icons/throw.png",
+      "label": "Throw"
+    }
+  ],
+  "theme": {
+    "hero-tile": "230px"
+  }
+}

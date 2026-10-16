@@ -7,10 +7,12 @@ Catalog.ThrowContainer = "SA_ThrowItems"
 Catalog.Containers = {
     "SA_TakePotion",
     "SA_UseScroll",
+    "SA_Quiver",
 }
 
 Catalog.RemovesItemOnCast = {
     ["SA_UseScroll"] = true,
+    ["SA_Quiver"] = true,
 }
 
 Catalog.Categories = {
@@ -38,6 +40,19 @@ Catalog.Categories = {
         },
         families = {
             ["BASE_BOOK_Scroll_Magic"] = true,
+        },
+        overrides = {
+        },
+    },
+    {
+        container = "SA_Quiver",
+        prefix = "SA_Arrow_",
+        inheritsItemSpell = true,
+        useTypes = {
+            ["Arrow"] = true,
+        },
+        families = {
+            ["BASE_LOOT_Arrow"] = true,
         },
         overrides = {
         },

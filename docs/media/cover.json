@@ -1,7 +1,7 @@
 {
   "style": "bg3",
   "name": "Shared Actions",
-  "tagline": "Use potions, scrolls and throwables carried by anyone in your party.",
+  "tagline": "Use potions, scrolls, special arrows and throwables carried by anyone in your party.",
   "tiles": [
     {
       "icon": "icons/take-potion.png",
@@ -12,8 +12,15 @@
       "label": "Use Scroll"
     },
     {
+      "icon": "icons/quiver.png",
+      "label": "Quiver"
+    },
+    {
       "icon": "icons/throw.png",
       "label": "Throw"
     }
-  ]
+  ],
+  "theme": {
+    "tile": "132px"
+  }
 }
