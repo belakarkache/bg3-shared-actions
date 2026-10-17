@@ -237,10 +237,13 @@ local function pendingItemEntity(casterUuid, pending)
     return Ext.Entity.Get(item), uuidOf(item)
 end
 
-local function throwCastOf(casterUuid)
+local function throwCastOf(casterUuid, spell, ignoredGuid)
     for _, entity in ipairs(Ext.Entity.GetAllEntitiesWithComponent("SpellCastState")) do
         local state = entity.SpellCastState
-        if isThrowSpell(state.SpellId.Prototype) and uuidOf(state.Caster) == casterUuid then
+        local prototype = state.SpellId.Prototype
+        if isThrowSpell(prototype) and uuidOf(state.Caster) == casterUuid
+            and (spell == nil or prototype == spell)
+            and (ignoredGuid == nil or tostring(state.SpellCastGuid) ~= ignoredGuid) then
             return entity
         end
     end
@@ -301,7 +304,7 @@ local function retargetQueuedPreview(previews, castGuidText, itemEntity)
 end
 
 local function injectItemPreview(system, casterUuid, pending)
-    local castEntity = throwCastOf(casterUuid)
+    local castEntity = throwCastOf(casterUuid, pending.spell)
     if not castEntity then return end
     local itemEntity, itemUuid = pendingItemEntity(casterUuid, pending)
     if not itemEntity then return end
@@ -372,7 +375,7 @@ local function prepareThrow(caster, spell)
         Osi.ToInventory(ownerItem, casterUuid, 1, 0)
     end
 
-    pendingThrow[casterUuid] = { templateKey = info.originalKey, originalOwner = originalOwner }
+    pendingThrow[casterUuid] = { spell = spell, templateKey = info.originalKey, originalOwner = originalOwner }
     waitForItemInInventory(casterUuid, info.originalKey, TRANSFER_POLL_ATTEMPTS)
 end
 
@@ -406,7 +409,10 @@ Ext.Entity.OnDestroy("SpellCastState", function(entity)
     local state = entity.SpellCastState
     if not state or not isThrowSpell(state.SpellId.Prototype) then return end
     local casterUuid = uuidOf(state.Caster)
-    if casterUuid then returnItem(casterUuid) end
+    local pending = casterUuid and pendingThrow[casterUuid]
+    if not pending or pending.spell ~= state.SpellId.Prototype then return end
+    if throwCastOf(casterUuid, nil, tostring(state.SpellCastGuid)) then return end
+    returnItem(casterUuid)
 end)
 
 Ext.Osiris.RegisterListener("TemplateAddedTo", 4, "after", function(template)

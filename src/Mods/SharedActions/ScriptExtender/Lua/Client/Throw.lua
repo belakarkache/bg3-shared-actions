@@ -26,6 +26,13 @@ local function prototypeOf(entity)
     return nil
 end
 
+local function sameEntity(a, b)
+    if a == nil or b == nil then return false end
+    if rawequal(a, b) then return true end
+    local ok, same = pcall(function() return a:GetHandle() == b:GetHandle() end)
+    return ok and same
+end
+
 local function flagsList(stat)
     local ok, list = pcall(function() return Ext.Json.Parse(Ext.Json.Stringify(stat.SpellFlags)) end)
     if ok and type(list) == "table" then return list end
@@ -89,5 +96,5 @@ Ext.Entity.OnCreateDeferred("ClientSpellCastState", function(entity)
 end)
 
 Ext.Entity.OnDestroy("ClientSpellCastState", function(entity)
-    if isThrowSpell(prototypeOf(entity)) then aimingCast = nil end
+    if sameEntity(entity, aimingCast) then aimingCast = nil end
 end)
