@@ -9,6 +9,7 @@ local PREVIEW_TARGETING_STATE_KIND = 0
 local AIMING_TARGETING_STATE = 2
 local PREVIEW_INJECT_ATTEMPTS = 30
 local PREVIEW_QUEUE = "NetworkPreviewUpdateRequests"
+local POLL_TRIES, POLL_STEP_MS = 12, 250
 
 local channel = Ext.Net.CreateChannel(ModuleUUID, "SharedActions_Throw")
 
@@ -20,6 +21,7 @@ local grantedByCharacter = {}
 local appliedContainerSpells = nil
 local castRequestHookRegistered = false
 local strippedCharacters = {}
+local pollingTemplates = {}
 
 local function isThrowSpell(prototype)
     return prototype ~= nil and keyBySpell[prototype] ~= nil
@@ -220,6 +222,31 @@ local function refreshTemplate(key)
     pushLabels({ [key] = true })
 end
 
+local function pollUntilCountChanges(key, triesLeft)
+    local before = countByTemplate[key]
+    Ext.Timer.WaitFor(POLL_STEP_MS, function()
+        refreshTemplate(key)
+        if triesLeft > 1 and countByTemplate[key] == before then
+            pollUntilCountChanges(key, triesLeft - 1)
+        else
+            pollingTemplates[key] = nil
+        end
+    end)
+end
+
+local function scheduleRefresh(key)
+    if not itemInfo[key] then return end
+    refreshTemplate(key)
+    if pollingTemplates[key] then return end
+    pollingTemplates[key] = true
+    pollUntilCountChanges(key, POLL_TRIES)
+end
+
+local function forceRefresh(key)
+    countByTemplate[key] = nil
+    refreshTemplate(key)
+end
+
 local function returnItem(casterUuid)
     local pending = pendingThrow[casterUuid]
     if not pending then return end
@@ -370,7 +397,7 @@ local function prepareThrow(caster, spell)
     local ownItem = Osi.GetItemByTemplateInInventory(info.originalKey, casterUuid)
     if not ownItem then
         local ownerItem = Osi.GetItemByTemplateInPartyInventory(info.originalKey, casterUuid)
-        if not ownerItem then return end
+        if not ownerItem then return forceRefresh(keyBySpell[spell]) end
         originalOwner = Osi.GetInventoryOwner(ownerItem)
         Osi.ToInventory(ownerItem, casterUuid, 1, 0)
     end
@@ -416,11 +443,15 @@ Ext.Entity.OnDestroy("SpellCastState", function(entity)
 end)
 
 Ext.Osiris.RegisterListener("TemplateAddedTo", 4, "after", function(template)
-    refreshTemplate(string.lower(template))
+    scheduleRefresh(string.lower(template))
 end)
 
 Ext.Osiris.RegisterListener("TemplateRemovedFrom", 3, "after", function(template)
-    refreshTemplate(string.lower(template))
+    scheduleRefresh(string.lower(template))
+end)
+
+Ext.Osiris.RegisterListener("TemplateUseFinished", 4, "after", function(_, template)
+    scheduleRefresh(string.lower(template))
 end)
 
 Ext.Osiris.RegisterListener("CharacterJoinedParty", 1, "after", function(character)
