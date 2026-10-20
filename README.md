@@ -15,11 +15,16 @@ Use potions, scrolls, special arrows and throwable items carried by anyone in yo
 3. In **BG3 Mod Manager**, import the `.zip`, enable **Shared Actions** and click **Export Load Order to Game**.
 4. Start the game. The new buttons are on the Action Bar.
 
-## Known issues
-
-- Items from other mods only show up if they were included when this version was built.
-- Scrolls that cast a spell from another mod are not supported.
-
 ## License
 
 [MIT](https://github.com/belakarkache/bg3-shared-actions/blob/main/LICENSE). Developed by [icka.dev](https://icka.dev).
+
+## Credits
+
+- [Larian Studios](https://larian.com), for Baldur's Gate 3 and its modding support.
+- [Norbyte](https://github.com/Norbyte), for [LSLib](https://github.com/Norbyte/lslib) and the [BG3 Script Extender](https://github.com/Norbyte/bg3se).
+- The BG3 modding community and the [BG3 Modding Community Wiki](https://wiki.bg3.community/), for the research and documentation this mod builds on.
+
+Built with AI assistance for code and documentation. The idea, design, testing and decisions are human.
+
+This mod is unofficial Fan Content permitted under the [Fan Content Policy](https://company.wizards.com/en/legal/fancontentpolicy). Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
