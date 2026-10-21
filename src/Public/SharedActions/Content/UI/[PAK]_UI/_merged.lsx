@@ -54,6 +54,16 @@
 					<attribute id="Template" type="FixedString" value="SharedActions_Quiver" />
 					<attribute id="Type" type="int64" value="0" />
 				</node>
+				<node id="Resource">
+					<attribute id="ID" type="FixedString" value="9549c2b0-2441-4a13-9464-6de2c2870dcd" />
+					<attribute id="Localized" type="bool" value="False" />
+					<attribute id="Name" type="LSString" value="SharedActions_Cancel" />
+					<attribute id="SRGB" type="bool" value="True" />
+					<attribute id="SourceFile" type="LSString" value="Public/SharedActions/Assets/Textures/Icons/SharedActions_Cancel.dds" />
+					<attribute id="Streaming" type="bool" value="True" />
+					<attribute id="Template" type="FixedString" value="SharedActions_Cancel" />
+					<attribute id="Type" type="int64" value="0" />
+				</node>
 			</children>
 		</node>
 	</region>

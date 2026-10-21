@@ -151,6 +151,25 @@ def check_icon_atlases():
     return atlas_keys
 
 
+def check_availability_gate(entries, container_name):
+    status = container_name + "_Available"
+    statuses = re.findall(r'new entry "([^"]+)"\ntype "StatusData"',
+                          (STATS_DIR / "Status_BOOST.txt").read_text(encoding="utf-8"))
+    assert status in statuses, (
+        f"{status}: sem StatusData em Status_BOOST.txt, o HasStatus nunca passa e o botão fica apagado")
+    gate = f"HasStatus('{status}')"
+    container = entries[container_name]
+    cancel = entries[container_name + "_Cancel"]
+    assert gate in container.get("RequirementConditions", ""), f"{container_name}: sem {gate}"
+    assert gate in cancel.get("RequirementConditions", ""), f"{container_name}_Cancel: sem {gate}"
+    for cost in container["UseCosts"].split(";"):
+        resource, amount = cost.split(":")
+        check = f"HasActionResource('{resource}', {amount}, 0, false, false)"
+        assert check in cancel["RequirementConditions"], (
+            f"{container_name}_Cancel: sem {check}, o Cancelar sem custo deixa o botão ativo "
+            "mesmo sem ação, e o menu abre e fecha sozinho")
+
+
 def check_container(entries, container_name, use_costs, label_handle, desc_handle):
     container = entries[container_name]
     assert container["_using"] == "SA_Base", f"{container_name}: não herda de SA_Base"
@@ -285,9 +304,15 @@ def main():
             assert f'contentuid="{handle}"' in loca_pt, f"{handle}: sem texto em PT-BR"
 
     handles = re.findall(r'contentuid="([^"]+)"', loca_en)
-    assert len(handles) == 2 * len(CATEGORIES_UNDER_TEST) + 2, (
+    assert len(handles) == 2 * len(CATEGORIES_UNDER_TEST) + 4, (
         f"loca tem {len(handles)} handles: o rótulo de item vem do jogo em runtime, "
-        "só os das categorias e o do container de arremesso ficam no .xml")
+        "só os das categorias, o do container de arremesso e o do Cancelar ficam no .xml")
+
+    for container_name in [c[0] for c in CATEGORIES_UNDER_TEST] + [THROW_CONTAINER]:
+        cancel = entries.get(container_name + "_Cancel")
+        assert cancel and cancel.get("SpellContainerID") == container_name, (
+            f"{container_name}: sem {container_name}_Cancel, a lista com 1 item lança direto")
+        check_availability_gate(entries, container_name)
 
     print(f"OK — {len(CATEGORIES_UNDER_TEST) + 1} containers vazios, {THROW_BASE_SPELL} herda Throw_Throw, "
           f"{len(handles)} handles fixos, {sub_spell_count} sub-spells no pak")

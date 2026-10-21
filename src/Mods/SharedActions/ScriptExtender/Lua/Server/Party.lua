@@ -40,6 +40,20 @@ function Party.Split()
     return members, others
 end
 
+function Party.SetStatus(character, status, active)
+    local applied = Osi.HasActiveStatus(character, status) == 1
+    if active and not applied then
+        Osi.ApplyStatus(character, status, -1, 1, character)
+    elseif not active and applied then
+        Osi.RemoveStatus(character, status)
+    end
+end
+
+function Party.RelearnSpell(character, spell)
+    Osi.RemoveSpell(character, spell, 0)
+    Osi.AddSpell(character, spell, 0, 0)
+end
+
 function Party.StripSpells(character, spells)
     for _, spell in ipairs(spells) do
         if Osi.HasSpell(character, spell) == 1 then

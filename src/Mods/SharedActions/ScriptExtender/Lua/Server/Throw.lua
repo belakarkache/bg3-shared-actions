@@ -19,6 +19,9 @@ local countByTemplate = {}
 local pendingThrow = {}
 local grantedByCharacter = {}
 local appliedContainerSpells = nil
+local hasItems = false
+local CANCEL_SPELL = Catalog.ThrowContainer .. Catalog.CancelSuffix
+local AVAILABLE_STATUS = Catalog.ThrowContainer .. Catalog.AvailableSuffix
 local castRequestHookRegistered = false
 local strippedCharacters = {}
 local pollingTemplates = {}
@@ -132,23 +135,29 @@ local function setGranted(character, spell, wanted)
     if wanted and not granted[spell] then
         Osi.AddSpell(character, spell, 0, 0)
         granted[spell] = true
+        return true
     elseif not wanted and granted[spell] then
         Osi.RemoveSpell(character, spell, 0)
         granted[spell] = nil
     end
+    return false
 end
 
 local function setupCharacter(character)
     if grantedByCharacter[character] then return end
     grantedByCharacter[character] = {}
     Osi.AddSpell(character, Catalog.ThrowContainer, 0, 0)
+    Osi.AddSpell(character, CANCEL_SPELL, 0, 0)
+    local grantedAny = false
     for spell, key in pairs(keyBySpell) do
         if carries(key) then
-            setGranted(character, spell, true)
+            grantedAny = setGranted(character, spell, true) or grantedAny
         elseif Osi.HasSpell(character, spell) == 1 then
             Osi.RemoveSpell(character, spell, 0)
         end
     end
+    if grantedAny then Party.RelearnSpell(character, CANCEL_SPELL) end
+    Party.SetStatus(character, AVAILABLE_STATUS, hasItems)
 end
 
 local function rebuildContainer()
@@ -157,25 +166,34 @@ local function rebuildContainer()
         if carries(key) then spells[#spells + 1] = info.spell end
     end
     table.sort(spells)
+    local listHasItems = #spells > 0
+    spells[#spells + 1] = CANCEL_SPELL
     local joined = table.concat(spells, ";")
     if joined == appliedContainerSpells then return end
 
     local stat = Ext.Stats.Get(Catalog.ThrowContainer)
     if not stat then return end
     appliedContainerSpells = joined
+    hasItems = listHasItems
     stat.ContainerSpells = joined
     stat:Sync()
+
+    for _, character in ipairs(partyMembers()) do
+        Party.SetStatus(character, AVAILABLE_STATUS, hasItems)
+        Party.RelearnSpell(character, CANCEL_SPELL)
+    end
 end
 
 local function stripCharacter(character)
     if strippedCharacters[character] then return end
     strippedCharacters[character] = true
     grantedByCharacter[character] = nil
-    local spells = { Catalog.ThrowContainer }
+    local spells = { Catalog.ThrowContainer, CANCEL_SPELL }
     for spell in pairs(keyBySpell) do
         spells[#spells + 1] = spell
     end
     Party.StripSpells(character, spells)
+    Party.SetStatus(character, AVAILABLE_STATUS, false)
 end
 
 local function resync()
@@ -468,7 +486,7 @@ end)
 Ext.Osiris.RegisterListener("LevelGameplayStarted", 2, "after", function()
     countByTemplate, pendingThrow, grantedByCharacter = {}, {}, {}
     strippedCharacters = {}
-    appliedContainerSpells = nil
+    appliedContainerSpells, hasItems = nil, false
     resync()
     ensureCastRequestHook()
 end)

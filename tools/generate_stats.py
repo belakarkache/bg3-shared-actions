@@ -91,6 +91,21 @@ THROW_CONTAINER = {
     "desc_ptbr": "Arremessa um item carregado por qualquer membro do grupo.",
 }
 
+CANCEL_SUFFIX = "_Cancel"
+AVAILABLE_SUFFIX = "_Available"
+STATUS_FILE = "Status_BOOST.txt"
+AVAILABLE_STATUS_FLAGS = ("IgnoreResting;IgnoredByImmobilized;DisableOverhead;DisableCombatlog;"
+                          "ApplyToDead;DisablePortraitIndicator")
+CANCEL_ENTRY = {
+    "icon": "SharedActions_Cancel" if CUSTOM_ICON_ENABLED else "Action_DismissSummon",
+    "label_handle": "h366930b4g000bg4000g9000g366930b4000b",
+    "desc_handle": "h366930b4g000cg4000g9000g366930b4000c",
+    "label": "Cancel",
+    "desc": "Close this list without using anything.",
+    "label_ptbr": "Cancelar",
+    "desc_ptbr": "Fecha esta lista sem usar nada.",
+}
+
 BASE_ENTRY = "SA_Base"
 BASE_SPELL_ANIMATION = ("03496c4a-49e0-4132-b585-3e5ecd1ad8e5,,;,,;"
                         "bcc3b0d9-f04f-4448-aab0-e0ad641167cc,,;"
@@ -231,6 +246,40 @@ def emit_container(category):
         f'data "DisplayName" "{category["label_handle"]};1"',
         f'data "Description" "{category["desc_handle"]};1"',
         'data "SpellFlags" "IsLinkedSpellContainer;UnavailableInDialogs"',
+        f'data "RequirementConditions" "HasStatus(\'{category["spell"]}{AVAILABLE_SUFFIX}\')"',
+        "",
+    ])
+
+
+def emit_available_status(category):
+    status = category["spell"] + AVAILABLE_SUFFIX
+    return "\n".join([
+        f'new entry "{status}"',
+        'type "StatusData"',
+        'data "StatusType" "BOOST"',
+        f'data "StackId" "{status}"',
+        f'data "StatusPropertyFlags" "{AVAILABLE_STATUS_FLAGS}"',
+        "",
+    ])
+
+
+def resource_condition(use_costs):
+    return " and ".join(
+        f"HasActionResource('{resource}', {amount}, 0, false, false)"
+        for resource, amount in (cost.split(":") for cost in use_costs.split(";")))
+
+
+def emit_cancel_entry(category):
+    return "\n".join([
+        f'new entry "{category["spell"]}{CANCEL_SUFFIX}"',
+        'type "SpellData"',
+        f'using "{BASE_ENTRY}"',
+        f'data "SpellContainerID" "{category["spell"]}"',
+        f'data "Icon" "{CANCEL_ENTRY["icon"]}"',
+        f'data "RequirementConditions" "HasStatus(\'{category["spell"]}{AVAILABLE_SUFFIX}\') and '
+        f'{resource_condition(category["use_costs"])}"',
+        f'data "DisplayName" "{CANCEL_ENTRY["label_handle"]};1"',
+        f'data "Description" "{CANCEL_ENTRY["desc_handle"]};1"',
         "",
     ])
 
@@ -248,6 +297,8 @@ def emit_catalog_lua():
     lines = ["Catalog = {}", "", f'Catalog.BaseEntry = "{BASE_ENTRY}"',
              f'Catalog.ThrowBaseSpell = "{THROW_BASE_SPELL}"',
              f'Catalog.ThrowContainer = "{THROW_CONTAINER["spell"]}"', "",
+             f'Catalog.CancelSuffix = "{CANCEL_SUFFIX}"',
+             f'Catalog.AvailableSuffix = "{AVAILABLE_SUFFIX}"', "",
              "Catalog.Containers = {"]
     lines += [f'    "{c["spell"]}",' for c in enabled_categories()]
 
@@ -298,6 +349,7 @@ def main():
 
     for category in enabled_categories() + [THROW_CONTAINER]:
         entries.append(emit_container(category))
+        entries.append(emit_cancel_entry(category))
         for lang, (label_key, desc_key) in LANGUAGES.items():
             localization[lang].append(
                 f'\t<content contentuid="{category["label_handle"]}" version="1">'
@@ -307,6 +359,14 @@ def main():
                 f'{category[desc_key]}</content>')
         print(f'{category["spell"]}: container vazio, preenchido em runtime')
 
+    for lang, (label_key, desc_key) in LANGUAGES.items():
+        localization[lang].append(
+            f'\t<content contentuid="{CANCEL_ENTRY["label_handle"]}" version="1">'
+            f'{CANCEL_ENTRY[label_key]}</content>')
+        localization[lang].append(
+            f'\t<content contentuid="{CANCEL_ENTRY["desc_handle"]}" version="1">'
+            f'{CANCEL_ENTRY[desc_key]}</content>')
+
     entries.append(emit_throw_base_entry())
 
     sub_spells = exported_sub_spells()
@@ -315,6 +375,8 @@ def main():
     for stale in STATS_DIR.glob("Spell_*.txt"):
         stale.unlink()
     (STATS_DIR / STATS_FILE).write_text("\n".join(entries), encoding="utf-8")
+    statuses = [emit_available_status(c) for c in enabled_categories() + [THROW_CONTAINER]]
+    (STATS_DIR / STATUS_FILE).write_text("\n".join(statuses), encoding="utf-8")
 
     for lang, lines in localization.items():
         directory = LOCALIZATION_ROOT / lang

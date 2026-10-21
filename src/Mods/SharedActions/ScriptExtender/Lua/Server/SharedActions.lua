@@ -9,6 +9,8 @@ local LegacySpells = Catalog.LegacySpells
 local RemovesItemOnCast = Catalog.RemovesItemOnCast
 local ScrollVariants = Catalog.ScrollVariants
 local VariantGroupOf = Catalog.VariantGroupOf
+local CancelSuffix = Catalog.CancelSuffix
+local AvailableSuffix = Catalog.AvailableSuffix
 
 local POLL_TRIES, POLL_STEP_MS = 12, 250
 local USE_RECONCILE_MS = 10000
@@ -20,6 +22,7 @@ local grantedSpellsByCharacter = {}
 local reconciledWithSave = {}
 local partyCountBySpell = {}
 local appliedContainerSpells = {}
+local hasItemsByContainer = {}
 local selfTriggeredUseByTemplate = {}
 local swappedMenu = nil
 local strippedCharacters = {}
@@ -38,10 +41,11 @@ end
 
 local function grantSpell(character, spell)
     local granted = grantedSpellsByCharacter[character]
-    if not granted or granted[spell] then return end
-    if isHiddenFromMenu(spell) then return end
+    if not granted or granted[spell] then return false end
+    if isHiddenFromMenu(spell) then return false end
     Osi.AddSpell(character, spell, 0, 0)
     granted[spell] = true
+    return true
 end
 
 local function revokeSpell(character, spell)
@@ -56,11 +60,14 @@ local function ensureContainersGranted(character)
     grantedSpellsByCharacter[character] = {}
     for _, container in ipairs(Containers) do
         Osi.AddSpell(character, container, 0, 0)
+        Osi.AddSpell(character, container .. CancelSuffix, 0, 0)
     end
 end
 
 local function writeContainerSpells(container, spells)
     table.sort(spells)
+    local hasItems = #spells > 0
+    spells[#spells + 1] = container .. CancelSuffix
     local joined = table.concat(spells, ";")
     if appliedContainerSpells[container] == joined then return end
     appliedContainerSpells[container] = joined
@@ -69,6 +76,24 @@ local function writeContainerSpells(container, spells)
     if not stat then return end
     stat.ContainerSpells = joined
     stat:Sync()
+    hasItemsByContainer[container] = hasItems
+
+    for _, character in ipairs(partyMembers()) do
+        Party.SetStatus(character, container .. AvailableSuffix, hasItems)
+        Party.RelearnSpell(character, container .. CancelSuffix)
+    end
+end
+
+local function syncAvailability(character)
+    for _, container in ipairs(Containers) do
+        Party.SetStatus(character, container .. AvailableSuffix, hasItemsByContainer[container] == true)
+    end
+end
+
+local function relearnCancels(character)
+    for _, container in ipairs(Containers) do
+        Party.RelearnSpell(character, container .. CancelSuffix)
+    end
 end
 
 local function rebuildContainer(container)
@@ -124,9 +149,10 @@ local function setupCharacter(character, available)
     ensureContainersGranted(character)
     local granted = grantedSpellsByCharacter[character]
     local alreadyReconciled = reconciledWithSave[character]
+    local grantedAny = false
     for spell in pairs(SpellContainer) do
         if available[spell] then
-            grantSpell(character, spell)
+            grantedAny = grantSpell(character, spell) or grantedAny
         elseif granted[spell] then
             revokeSpell(character, spell)
         elseif not alreadyReconciled and Osi.HasSpell(character, spell) == 1 then
@@ -141,6 +167,8 @@ local function setupCharacter(character, available)
         end
     end
 
+    if grantedAny then relearnCancels(character) end
+    syncAvailability(character)
     reconciledWithSave[character] = true
 end
 
@@ -149,8 +177,12 @@ local function stripCharacter(character)
     strippedCharacters[character] = true
     grantedSpellsByCharacter[character] = nil
     reconciledWithSave[character] = nil
-    Party.StripSpells(character, Containers)
     local spells = {}
+    for _, container in ipairs(Containers) do
+        spells[#spells + 1] = container
+        spells[#spells + 1] = container .. CancelSuffix
+        Party.SetStatus(character, container .. AvailableSuffix, false)
+    end
     for spell in pairs(SpellContainer) do
         spells[#spells + 1] = spell
     end
@@ -199,14 +231,14 @@ local function refreshTemplate(template)
     local count = countInParty(template, members[1])
 
     for _, spell in ipairs(spells) do
+        for _, character in ipairs(members) do
+            if count > 0 then grantSpell(character, spell) else revokeSpell(character, spell) end
+        end
+
         if partyCountBySpell[spell] ~= count then
             partyCountBySpell[spell] = count
             rebuildContainer(SpellContainer[spell])
             if count > 0 then pushLabels({ [spell] = count }) end
-        end
-
-        for _, character in ipairs(members) do
-            if count > 0 then grantSpell(character, spell) else revokeSpell(character, spell) end
         end
     end
 end
@@ -231,7 +263,6 @@ local function showVariantsInMenu(picker)
     local leaves = ScrollVariants[picker]
     swappedMenu = { picker = picker, container = container }
 
-    writeContainerSpells(container, { table.unpack(leaves) })
     for _, character in ipairs(partyMembers()) do
         for spell in pairs(grantedSpellsByCharacter[character] or {}) do
             if isHiddenFromMenu(spell) then revokeSpell(character, spell) end
@@ -240,6 +271,7 @@ local function showVariantsInMenu(picker)
             grantSpell(character, leaf)
         end
     end
+    writeContainerSpells(container, { table.unpack(leaves) })
 end
 
 local function restoreMenu()
@@ -336,7 +368,7 @@ end)
 
 Ext.Osiris.RegisterListener("LevelGameplayStarted", 2, "after", function()
     grantedSpellsByCharacter, partyCountBySpell = {}, {}
-    reconciledWithSave, appliedContainerSpells = {}, {}
+    reconciledWithSave, appliedContainerSpells, hasItemsByContainer = {}, {}, {}
     strippedCharacters = {}
     swappedMenu = nil
     resync()

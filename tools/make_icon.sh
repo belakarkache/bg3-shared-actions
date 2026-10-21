@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC="${1:?uso: $0 <arquivo.png> [potion|scroll|throw|quiver]}"
+SRC="${1:?uso: $0 <arquivo.png> [potion|scroll|throw|quiver|cancel]}"
 WHICH="${2:-potion}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEXCONV="${TEXCONV:-texconv.exe}"
@@ -13,7 +13,8 @@ case "$WHICH" in
     scroll) ATLAS="SharedActions_Scrolls"; ASSET="UseScroll_source.png" ;;
     throw)  ATLAS="SharedActions_Throw";   ASSET="ThrowThrowables_source.png" ;;
     quiver) ATLAS="SharedActions_Quiver";  ASSET="Quiver_source.png" ;;
-    *) echo "segundo argumento: potion, scroll, throw ou quiver" >&2; exit 1 ;;
+    cancel) ATLAS="SharedActions_Cancel";  ASSET="Cancel_source.png" ;;
+    *) echo "segundo argumento: potion, scroll, throw, quiver ou cancel" >&2; exit 1 ;;
 esac
 
 [[ -f "$SRC" ]] || { echo "não achei: $SRC" >&2; exit 1; }

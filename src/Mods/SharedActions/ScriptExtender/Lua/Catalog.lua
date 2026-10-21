@@ -4,6 +4,9 @@ Catalog.BaseEntry = "SA_Base"
 Catalog.ThrowBaseSpell = "SA_ThrowBase"
 Catalog.ThrowContainer = "SA_ThrowItems"
 
+Catalog.CancelSuffix = "_Cancel"
+Catalog.AvailableSuffix = "_Available"
+
 Catalog.Containers = {
     "SA_TakePotion",
     "SA_UseScroll",
