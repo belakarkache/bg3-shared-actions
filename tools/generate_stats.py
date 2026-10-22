@@ -56,6 +56,7 @@ CATEGORIES = [
         "use_costs": "ActionPoint:1",
         "families": {"BASE_BOOK_Scroll_Magic"},
         "inherits_item_spell": True,
+        "overrides": {"Level": "0", "Cooldown": "None"},
     },
     {
         "key": "arrows",
@@ -72,6 +73,7 @@ CATEGORIES = [
         "use_costs": "ActionPoint:1",
         "families": {"BASE_LOOT_Arrow"},
         "inherits_item_spell": True,
+        "overrides": {"Cooldown": "None"},
     },
 ]
 

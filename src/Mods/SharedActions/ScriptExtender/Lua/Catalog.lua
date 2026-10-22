@@ -45,6 +45,8 @@ Catalog.Categories = {
             ["BASE_BOOK_Scroll_Magic"] = true,
         },
         overrides = {
+            Cooldown = "None",
+            Level = "0",
         },
     },
     {
@@ -58,6 +60,7 @@ Catalog.Categories = {
             ["BASE_LOOT_Arrow"] = true,
         },
         overrides = {
+            Cooldown = "None",
         },
     },
 }

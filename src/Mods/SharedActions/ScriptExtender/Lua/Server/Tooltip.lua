@@ -6,7 +6,7 @@ local SPELL_TOOLTIP_FIELDS = {
     "TooltipStatusApply", "TooltipOnMiss", "TooltipOnSave", "TooltipPermanentWarnings",
     "TooltipUpcastDescription", "TooltipUpcastDescriptionParams",
 }
-local SPELL_HEADER_FIELDS = { "Level", "SpellSchool" }
+local SPELL_HEADER_FIELDS = { "SpellSchool" }
 local UNKNOWN_HANDLE = "ls::TranslatedStringRepository::s_HandleUnknown"
 
 local function copyFields(target, source, fields)
